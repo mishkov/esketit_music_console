@@ -9,6 +9,7 @@ import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
+import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
@@ -160,9 +161,16 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
       name: file.name,
       mimeType: file.extension == null ? null : 'audio/${file.extension}',
     );
+    final metadata = parseMp3Metadata(file.bytes!);
 
     setState(() {
       _pickedFile = CrossFile(file: xFile);
+      if ((metadata.title?.isNotEmpty ?? false)) {
+        _nameController.text = metadata.title!;
+      }
+      if (metadata.authors.isNotEmpty) {
+        _authorsController.text = metadata.authors.join(', ');
+      }
     });
   }
 
