@@ -8,4 +8,12 @@ abstract class HttpClient {
     Map<String, String>? headers,
     Object? body,
   });
+
+  Future<HttpResponse> postMultipart(
+    String path, {
+    Map<String, String>? headers,
+    required String fieldName,
+    required String fileName,
+    required List<int> bytes,
+  });
 }

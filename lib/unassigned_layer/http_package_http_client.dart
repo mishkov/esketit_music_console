@@ -41,6 +41,28 @@ class HttpPackageHttpClient implements HttpClient {
     );
   }
 
+  @override
+  Future<HttpResponse> postMultipart(
+    String path, {
+    Map<String, String>? headers,
+    required String fieldName,
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final request = http.MultipartRequest('POST', _resolve(path))
+      ..headers.addAll(headers ?? const {})
+      ..files.add(
+        http.MultipartFile.fromBytes(fieldName, bytes, filename: fileName),
+      );
+
+    final streamedResponse = await _client.send(request);
+    final response = await http.Response.fromStream(streamedResponse);
+    return HttpResponse(
+      statusCode: response.statusCode,
+      response: response.body,
+    );
+  }
+
   Uri _resolve(String path) {
     final sanitizedPath = path.startsWith('/') ? path.substring(1) : path;
     return baseUri.resolve(sanitizedPath);

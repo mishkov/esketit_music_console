@@ -35,6 +35,27 @@ class AuthenticatedHttpClientProxy implements HttpClient {
     );
   }
 
+  @override
+  Future<HttpResponse> postMultipart(
+    String path, {
+    Map<String, String>? headers,
+    required String fieldName,
+    required String fileName,
+    required List<int> bytes,
+  }) {
+    return _sendAuthenticated(
+      path: path,
+      headers: headers,
+      send: (mergedHeaders) => _httpClient.postMultipart(
+        path,
+        headers: mergedHeaders,
+        fieldName: fieldName,
+        fileName: fileName,
+        bytes: bytes,
+      ),
+    );
+  }
+
   Future<HttpResponse> _sendAuthenticated({
     required String path,
     required Map<String, String>? headers,

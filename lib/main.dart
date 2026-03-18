@@ -4,9 +4,8 @@ import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
-import 'package:esketit_music_console/firebase/track/firebase_track_storage.dart';
+import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
-import 'package:esketit_music_console/firebase_options.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
@@ -15,13 +14,11 @@ import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const AppRoot());
 }
 
@@ -52,7 +49,10 @@ class AppRoot extends StatelessWidget {
     return MultiRepositoryProvider(
       providers: [
         RepositoryProvider<TracksStorage>(
-          create: (_) => FirebaseTrackStorage(),
+          create: (_) => EsketitRestApiTracksStorage(
+            authenticatedHttpClient: authenticatedHttpClient,
+            baseUri: baseUri,
+          ),
         ),
       ],
       child: MultiBlocProvider(
@@ -218,7 +218,7 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tracks Firebase Test UI'),
+        title: const Text('Tracks Test UI'),
         actions: [
           if (user != null)
             Padding(
