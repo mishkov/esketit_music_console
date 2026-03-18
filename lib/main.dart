@@ -1,17 +1,23 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
+import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
+import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/firebase/track/firebase_track_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/firebase_options.dart';
+import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
+import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
+import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,13 +30,45 @@ class AppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProvider<TracksStorage>(
-      create: (_) => FirebaseTrackStorage(),
-      child: BlocProvider(
-        create: (context) => TrackListBloc(
-          const TrackListState(tracks: []),
-          storage: context.read<TracksStorage>(),
-        )..add(const LoadTracks()),
+    final baseUri = Uri.parse(
+      const String.fromEnvironment(
+        'ESKETIT_API_BASE_URL',
+        defaultValue: 'http://localhost:8080',
+      ),
+    );
+    final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
+    late final EsketitRestApiAuthRepository authRepository;
+    final authenticatedHttpClient = AuthenticatedHttpClientProxy(
+      httpClient: unauthenticatedHttpClient,
+      refreshSession: ({forceRefresh = false}) =>
+          authRepository.refreshSession(forceRefresh: forceRefresh),
+    );
+    authRepository = EsketitRestApiAuthRepository(
+      unauthenticatedHttpClient: unauthenticatedHttpClient,
+      authenticatedHttpClient: authenticatedHttpClient,
+      sessionStorage: SharedPreferencesAuthSessionStorage(),
+    );
+
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<TracksStorage>(
+          create: (_) => FirebaseTrackStorage(),
+        ),
+      ],
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider(
+            create: (_) =>
+                AuthBloc(authRepository: authRepository)
+                  ..add(const AuthSessionRestoreRequested()),
+          ),
+          BlocProvider(
+            create: (context) => TrackListBloc(
+              const TrackListState(tracks: []),
+              storage: context.read<TracksStorage>(),
+            ),
+          ),
+        ],
         child: const MainApp(),
       ),
     );
@@ -42,7 +80,42 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(home: TracksDebugPage());
+    return MaterialApp(
+      title: 'Esketit Music',
+      theme: ThemeData(colorSchemeSeed: Colors.green, useMaterial3: true),
+      home: BlocBuilder<AuthBloc, AuthState>(
+        builder: (context, state) {
+          switch (state.status) {
+            case AuthStatus.restoring:
+              return const _RestoringSessionScreen();
+            case AuthStatus.unauthenticated:
+              return const SignInScreen();
+            case AuthStatus.authenticated:
+              return const TracksDebugPage();
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _RestoringSessionScreen extends StatelessWidget {
+  const _RestoringSessionScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Restoring session...'),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -59,6 +132,12 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
   final _infoTitleController = TextEditingController();
   final _infoTextController = TextEditingController();
   CrossFile? _pickedFile;
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<TrackListBloc>().add(const LoadTracks());
+  }
 
   @override
   void dispose() {
@@ -135,8 +214,24 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.select((AuthBloc bloc) => bloc.state.session?.user);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Tracks Firebase Test UI')),
+      appBar: AppBar(
+        title: const Text('Tracks Firebase Test UI'),
+        actions: [
+          if (user != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Center(child: Text(user.email)),
+            ),
+          TextButton(
+            onPressed: () =>
+                context.read<AuthBloc>().add(const AuthSignOutRequested()),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
       body: BlocBuilder<TrackListBloc, TrackListState>(
         builder: (context, state) {
           return Padding(

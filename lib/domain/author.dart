@@ -5,7 +5,7 @@ class Author extends Equatable {
   final String currentName;
 
   const Author({required this.currentName});
-  
+
   @override
   List<Object> get props => [currentName];
 }
