@@ -9,6 +9,14 @@ abstract class HttpClient {
     Object? body,
   });
 
+  Future<HttpResponse> put(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  });
+
+  Future<HttpResponse> delete(String path, {Map<String, String>? headers});
+
   Future<HttpResponse> postMultipart(
     String path, {
     Map<String, String>? headers,

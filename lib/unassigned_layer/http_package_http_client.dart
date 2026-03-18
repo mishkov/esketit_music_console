@@ -42,6 +42,39 @@ class HttpPackageHttpClient implements HttpClient {
   }
 
   @override
+  Future<HttpResponse> put(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    final preparedBody = _prepareBody(body);
+    final response = await _client.put(
+      _resolve(path),
+      headers: {
+        if (preparedBody != null) 'Content-Type': 'application/json',
+        ...?headers,
+      },
+      body: preparedBody,
+    );
+    return HttpResponse(
+      statusCode: response.statusCode,
+      response: response.body,
+    );
+  }
+
+  @override
+  Future<HttpResponse> delete(
+    String path, {
+    Map<String, String>? headers,
+  }) async {
+    final response = await _client.delete(_resolve(path), headers: headers);
+    return HttpResponse(
+      statusCode: response.statusCode,
+      response: response.body,
+    );
+  }
+
+  @override
   Future<HttpResponse> postMultipart(
     String path, {
     Map<String, String>? headers,

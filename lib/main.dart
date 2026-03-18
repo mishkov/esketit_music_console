@@ -3,9 +3,10 @@ import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_aut
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
+import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
-import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
@@ -87,7 +88,7 @@ class MainApp extends StatelessWidget {
             case AuthStatus.unauthenticated:
               return const SignInScreen();
             case AuthStatus.authenticated:
-              return const TracksPage();
+              return const MainShell();
           }
         },
       ),
@@ -115,14 +116,18 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-class TracksPage extends StatefulWidget {
-  const TracksPage({super.key});
+enum _MainDestination { tracks, authors }
+
+class MainShell extends StatefulWidget {
+  const MainShell({super.key});
 
   @override
-  State<TracksPage> createState() => _TracksPageState();
+  State<MainShell> createState() => _MainShellState();
 }
 
-class _TracksPageState extends State<TracksPage> {
+class _MainShellState extends State<MainShell> {
+  _MainDestination _destination = _MainDestination.tracks;
+
   @override
   void initState() {
     super.initState();
@@ -135,19 +140,13 @@ class _TracksPageState extends State<TracksPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tracks'),
+        title: Text('Esketit Music'),
         actions: [
           if (user != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Center(child: Text(user.email)),
             ),
-          IconButton(
-            onPressed: () =>
-                context.read<TrackListBloc>().add(const LoadTracks()),
-            tooltip: 'Reload tracks',
-            icon: const Icon(Icons.refresh),
-          ),
           TextButton(
             onPressed: () =>
                 context.read<AuthBloc>().add(const AuthSignOutRequested()),
@@ -155,69 +154,51 @@ class _TracksPageState extends State<TracksPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddTrackScreen,
-        icon: const Icon(Icons.library_add),
-        label: const Text('Add track'),
-      ),
-      body: BlocBuilder<TrackListBloc, TrackListState>(
-        builder: (context, state) {
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (state.errorMessage != null) ...[
-                  Text(
-                    state.errorMessage!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (state.isLoading) const LinearProgressIndicator(),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: state.tracks.isEmpty && !state.isLoading
-                      ? const Center(
-                          child: Text(
-                            'No tracks yet. Use "Add track" to create one.',
-                          ),
-                        )
-                      : ListView.separated(
-                          itemCount: state.tracks.length,
-                          separatorBuilder: (context, index) =>
-                              const Divider(height: 24),
-                          itemBuilder: (context, index) {
-                            final track = state.tracks[index];
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              title: Text(track.name),
-                              subtitle: Text(
-                                [
-                                  'Authors: ${track.authors.map((author) => author.currentName).join(', ')}',
-                                  _fileLabel(track.file),
-                                ].join('\n'),
-                              ),
-                              isThreeLine: true,
-                              tileColor: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerLowest,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            );
-                          },
-                        ),
+      floatingActionButton: _destination == _MainDestination.tracks
+          ? FloatingActionButton.extended(
+              onPressed: _openAddTrackScreen,
+              icon: const Icon(Icons.library_add),
+              label: const Text('Add track'),
+            )
+          : null,
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: _destination.index,
+            onDestinationSelected: (index) {
+              setState(() {
+                _destination = _MainDestination.values[index];
+              });
+            },
+            labelType: NavigationRailLabelType.all,
+            destinations: const [
+              NavigationRailDestination(
+                icon: Icon(Icons.music_note_outlined),
+                selectedIcon: Icon(Icons.music_note),
+                label: Text('Tracks'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.people_outline),
+                selectedIcon: Icon(Icons.people),
+                label: Text('Authors'),
+              ),
+            ],
+          ),
+          const VerticalDivider(width: 1),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: switch (_destination) {
+                _MainDestination.tracks => const TracksSection(
+                  key: ValueKey('tracks'),
                 ),
-              ],
+                _MainDestination.authors => const AuthorsListScreen(
+                  key: ValueKey('authors'),
+                ),
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -230,6 +211,87 @@ class _TracksPageState extends State<TracksPage> {
     if (didSave == true && mounted) {
       context.read<TrackListBloc>().add(const LoadTracks());
     }
+  }
+}
+
+class TracksSection extends StatelessWidget {
+  const TracksSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<TrackListBloc, TrackListState>(
+      builder: (context, state) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Tracks',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () =>
+                        context.read<TrackListBloc>().add(const LoadTracks()),
+                    tooltip: 'Reload tracks',
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (state.errorMessage != null) ...[
+                Text(
+                  state.errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (state.isLoading) const LinearProgressIndicator(),
+              const SizedBox(height: 12),
+              Expanded(
+                child: state.tracks.isEmpty && !state.isLoading
+                    ? const Center(
+                        child: Text(
+                          'No tracks yet. Use "Add track" to create one.',
+                        ),
+                      )
+                    : ListView.separated(
+                        itemCount: state.tracks.length,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 24),
+                        itemBuilder: (context, index) {
+                          final track = state.tracks[index];
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            title: Text(track.name),
+                            subtitle: Text(
+                              [
+                                'Authors: ${track.authors.map((author) => author.currentName).join(', ')}',
+                                _fileLabel(track.file),
+                              ].join('\n'),
+                            ),
+                            isThreeLine: true,
+                            tileColor: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLowest,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   String _fileLabel(Object file) {

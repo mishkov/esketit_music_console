@@ -8,4 +8,10 @@ abstract class TracksStorage {
   Future<StorageTracksList> getTracks();
 
   Future<List<Author>> getAuthors();
+
+  Future<Author> getAuthor(int id);
+
+  Future<Author> updateAuthor(Author author);
+
+  Future<void> deleteAuthor(int id);
 }
