@@ -27,21 +27,32 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   Future<StorageTracksList> getTracks() async {
     final tracksResponse = await _authenticatedHttpClient.get('/tracks');
     _throwIfUnexpectedStatus(tracksResponse, path: '/tracks');
-    final authorsResponse = await _authenticatedHttpClient.get('/authors');
-    _throwIfUnexpectedStatus(authorsResponse, path: '/authors');
-
-    final authorsById = {
-      for (final author in _decodeJsonListOfMaps(authorsResponse.response, path: '/authors'))
+    final authorMaps = await _getAuthorMaps();
+    final authorsByIdMap = {
+      for (final author in authorMaps)
         (author['id'] as num).toInt(): Author(
           currentName: (author['currentName'] as String?) ?? '',
         ),
     };
 
-    final tracks = _decodeJsonListOfMaps(tracksResponse.response, path: '/tracks')
-        .map((track) => _parseTrack(track, authorsById))
-        .toList();
+    final tracks = _decodeJsonListOfMaps(
+      tracksResponse.response,
+      path: '/tracks',
+    ).map((track) => _parseTrack(track, authorsByIdMap)).toList();
 
     return StorageTracksList(tracks: tracks);
+  }
+
+  @override
+  Future<List<Author>> getAuthors() async {
+    final authorMaps = await _getAuthorMaps();
+    return authorMaps
+        .map(
+          (author) =>
+              Author(currentName: (author['currentName'] as String?) ?? ''),
+        )
+        .where((author) => author.currentName.trim().isNotEmpty)
+        .toList();
   }
 
   @override
@@ -58,7 +69,11 @@ class EsketitRestApiTracksStorage implements TracksStorage {
         'audioFilePath': uploadedSong.name,
       },
     );
-    _throwIfUnexpectedStatus(response, path: '/tracks', expectedStatusCodes: {201});
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/tracks',
+      expectedStatusCodes: {201},
+    );
   }
 
   Track _parseTrack(Map<String, dynamic> json, Map<int, Author> authorsById) {
@@ -70,13 +85,18 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     return Track(
       name: (json['name'] as String?) ?? '',
       authors: authorIds
-          .map((id) => authorsById[id] ?? Author(currentName: 'Unknown author #$id'))
+          .map(
+            (id) =>
+                authorsById[id] ?? Author(currentName: 'Unknown author #$id'),
+          )
           .toList(),
       addionalInfo: const [],
       file: StorageFile(
         name: audioFilePath,
         storagePath: audioFilePath,
-        downloadUrl: _baseUri.resolve('/songs/${Uri.encodeComponent(audioFilePath)}').toString(),
+        downloadUrl: _baseUri
+            .resolve('/songs/${Uri.encodeComponent(audioFilePath)}')
+            .toString(),
       ),
     );
   }
@@ -97,12 +117,21 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       fileName: file.name,
       bytes: await file.readAsBytes(),
     );
-    _throwIfUnexpectedStatus(response, path: '/songs', expectedStatusCodes: {201});
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/songs',
+      expectedStatusCodes: {201},
+    );
 
     final body = _decodeJsonMap(response.response, path: '/songs');
     return _SongInfo(
       name: (body['name'] as String?) ?? file.name,
-      url: _baseUri.resolve((body['url'] as String?) ?? '/songs/${Uri.encodeComponent(file.name)}').toString(),
+      url: _baseUri
+          .resolve(
+            (body['url'] as String?) ??
+                '/songs/${Uri.encodeComponent(file.name)}',
+          )
+          .toString(),
     );
   }
 
@@ -116,16 +145,12 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       throw const AppError('At least one author is required');
     }
 
-    final existingAuthorsResponse = await _authenticatedHttpClient.get('/authors');
-    _throwIfUnexpectedStatus(existingAuthorsResponse, path: '/authors');
-    final existingAuthors = _decodeJsonListOfMaps(
-      existingAuthorsResponse.response,
-      path: '/authors',
-    );
+    final existingAuthors = await _getAuthorMaps();
 
     final authorIdsByName = <String, int>{
       for (final author in existingAuthors)
-        ((author['currentName'] as String?) ?? '').trim(): (author['id'] as num).toInt(),
+        ((author['currentName'] as String?) ?? '').trim(): (author['id'] as num)
+            .toInt(),
     };
 
     final resolvedIds = <int>[];
@@ -145,7 +170,10 @@ class EsketitRestApiTracksStorage implements TracksStorage {
         path: '/authors',
         expectedStatusCodes: {201},
       );
-      final createdAuthor = _decodeJsonMap(createAuthorResponse.response, path: '/authors');
+      final createdAuthor = _decodeJsonMap(
+        createAuthorResponse.response,
+        path: '/authors',
+      );
       final id = (createdAuthor['id'] as num).toInt();
       authorIdsByName[name] = id;
       resolvedIds.add(id);
@@ -172,6 +200,12 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       throw AppError('Expected JSON object response for $path', cause: decoded);
     }
     return decoded;
+  }
+
+  Future<List<Map<String, dynamic>>> _getAuthorMaps() async {
+    final authorsResponse = await _authenticatedHttpClient.get('/authors');
+    _throwIfUnexpectedStatus(authorsResponse, path: '/authors');
+    return _decodeJsonListOfMaps(authorsResponse.response, path: '/authors');
   }
 
   void _throwIfUnexpectedStatus(

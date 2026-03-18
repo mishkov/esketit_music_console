@@ -1,20 +1,15 @@
-import 'package:cross_file/cross_file.dart';
-import 'package:esketit_music_console/domain/author.dart';
-import 'package:esketit_music_console/domain/track.dart';
-import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
-import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
-import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
+import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -92,7 +87,7 @@ class MainApp extends StatelessWidget {
             case AuthStatus.unauthenticated:
               return const SignInScreen();
             case AuthStatus.authenticated:
-              return const TracksDebugPage();
+              return const TracksPage();
           }
         },
       ),
@@ -120,104 +115,18 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-class TracksDebugPage extends StatefulWidget {
-  const TracksDebugPage({super.key});
+class TracksPage extends StatefulWidget {
+  const TracksPage({super.key});
 
   @override
-  State<TracksDebugPage> createState() => _TracksDebugPageState();
+  State<TracksPage> createState() => _TracksPageState();
 }
 
-class _TracksDebugPageState extends State<TracksDebugPage> {
-  final _nameController = TextEditingController();
-  final _authorsController = TextEditingController();
-  final _infoTitleController = TextEditingController();
-  final _infoTextController = TextEditingController();
-  CrossFile? _pickedFile;
-
+class _TracksPageState extends State<TracksPage> {
   @override
   void initState() {
     super.initState();
     context.read<TrackListBloc>().add(const LoadTracks());
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _authorsController.dispose();
-    _infoTitleController.dispose();
-    _infoTextController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: true);
-    final file = result?.files.single;
-    if (file == null || file.bytes == null) {
-      return;
-    }
-
-    final xFile = XFile.fromData(
-      file.bytes!,
-      name: file.name,
-      mimeType: file.extension == null ? null : 'audio/${file.extension}',
-    );
-    final metadata = parseMp3Metadata(file.bytes!);
-
-    setState(() {
-      _pickedFile = CrossFile(file: xFile);
-      if ((metadata.title?.isNotEmpty ?? false)) {
-        _nameController.text = metadata.title!;
-      }
-      if (metadata.authors.isNotEmpty) {
-        _authorsController.text = metadata.authors.join(', ');
-      }
-    });
-  }
-
-  void _addTrack() {
-    if (_pickedFile == null || _nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Track name and file are required')),
-      );
-      return;
-    }
-
-    final authors = _authorsController.text
-        .split(',')
-        .map((name) => name.trim())
-        .where((name) => name.isNotEmpty)
-        .map((name) => Author(currentName: name))
-        .toList();
-
-    final info = <TextTrackInfo>[];
-    if (_infoTitleController.text.trim().isNotEmpty ||
-        _infoTextController.text.trim().isNotEmpty) {
-      info.add(
-        TextTrackInfo(
-          title: _infoTitleController.text.trim(),
-          text: _infoTextController.text.trim(),
-        ),
-      );
-    }
-
-    context.read<TrackListBloc>().add(
-      AddTrack(
-        track: Track(
-          name: _nameController.text.trim(),
-          authors: authors,
-          addionalInfo: info,
-          file: _pickedFile!,
-        ),
-      ),
-    );
-
-    _nameController.clear();
-    _authorsController.clear();
-    _infoTitleController.clear();
-    _infoTextController.clear();
-    setState(() {
-      _pickedFile = null;
-    });
   }
 
   @override
@@ -226,19 +135,30 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tracks Test UI'),
+        title: const Text('Tracks'),
         actions: [
           if (user != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Center(child: Text(user.email)),
             ),
+          IconButton(
+            onPressed: () =>
+                context.read<TrackListBloc>().add(const LoadTracks()),
+            tooltip: 'Reload tracks',
+            icon: const Icon(Icons.refresh),
+          ),
           TextButton(
             onPressed: () =>
                 context.read<AuthBloc>().add(const AuthSignOutRequested()),
             child: const Text('Sign out'),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openAddTrackScreen,
+        icon: const Icon(Icons.library_add),
+        label: const Text('Add track'),
       ),
       body: BlocBuilder<TrackListBloc, TrackListState>(
         builder: (context, state) {
@@ -247,109 +167,52 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    SizedBox(
-                      width: 300,
-                      child: TextField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Track name',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 300,
-                      child: TextField(
-                        controller: _authorsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Authors (comma separated)',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 300,
-                      child: TextField(
-                        controller: _infoTitleController,
-                        decoration: const InputDecoration(
-                          labelText: 'Info title',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 300,
-                      child: TextField(
-                        controller: _infoTextController,
-                        decoration: const InputDecoration(
-                          labelText: 'Info text',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  children: [
-                    FilledButton(
-                      onPressed: state.isLoading ? null : _pickFile,
-                      child: const Text('Pick File'),
-                    ),
-                    FilledButton(
-                      onPressed: state.isLoading ? null : _addTrack,
-                      child: const Text('Add Track'),
-                    ),
-                    FilledButton.tonal(
-                      onPressed: state.isLoading
-                          ? null
-                          : () => context.read<TrackListBloc>().add(
-                              const LoadTracks(),
-                            ),
-                      child: const Text('Reload'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _pickedFile == null
-                      ? 'No file selected'
-                      : 'Selected file: ${_pickedFile!.name}',
-                ),
                 if (state.errorMessage != null) ...[
-                  const SizedBox(height: 8),
                   Text(
                     state.errorMessage!,
-                    style: const TextStyle(color: Colors.red),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
+                  const SizedBox(height: 12),
                 ],
-                const SizedBox(height: 12),
                 if (state.isLoading) const LinearProgressIndicator(),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: ListView.separated(
-                    itemCount: state.tracks.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 24),
-                    itemBuilder: (context, index) {
-                      final track = state.tracks[index];
-                      return ListTile(
-                        title: Text(track.name),
-                        subtitle: Text(
-                          [
-                            'Authors: ${track.authors.map((author) => author.currentName).join(', ')}',
-                            _fileLabel(track),
-                          ].join('\n'),
+                  child: state.tracks.isEmpty && !state.isLoading
+                      ? const Center(
+                          child: Text(
+                            'No tracks yet. Use "Add track" to create one.',
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: state.tracks.length,
+                          separatorBuilder: (context, index) =>
+                              const Divider(height: 24),
+                          itemBuilder: (context, index) {
+                            final track = state.tracks[index];
+                            return ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              title: Text(track.name),
+                              subtitle: Text(
+                                [
+                                  'Authors: ${track.authors.map((author) => author.currentName).join(', ')}',
+                                  _fileLabel(track.file),
+                                ].join('\n'),
+                              ),
+                              isThreeLine: true,
+                              tileColor: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerLowest,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            );
+                          },
                         ),
-                        isThreeLine: true,
-                      );
-                    },
-                  ),
                 ),
               ],
             ),
@@ -359,13 +222,21 @@ class _TracksDebugPageState extends State<TracksDebugPage> {
     );
   }
 
-  String _fileLabel(Track track) {
-    if (track.file is StorageFile) {
-      final file = track.file as StorageFile;
+  Future<void> _openAddTrackScreen() async {
+    final didSave = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const AddTracksScreen()));
+
+    if (didSave == true && mounted) {
+      context.read<TrackListBloc>().add(const LoadTracks());
+    }
+  }
+
+  String _fileLabel(Object file) {
+    if (file is StorageFile) {
       return 'File: ${file.name} (${file.downloadUrl})';
     }
-    if (track.file is CrossFile) {
-      final file = track.file as CrossFile;
+    if (file is CrossFile) {
       return 'File: ${file.name} (local)';
     }
     return 'File: unknown';
