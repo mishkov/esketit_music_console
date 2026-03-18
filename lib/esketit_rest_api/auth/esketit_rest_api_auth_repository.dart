@@ -97,16 +97,24 @@ class EsketitRestApiAuthRepository implements AuthRepository {
       return null;
     }
 
-    final response = await _unauthenticatedHttpClient.post(
-      '/auth/refresh',
-      body: {'refreshToken': currentSession.refreshToken},
-    );
-    final refreshedSession = _parseAuthResponse(
-      response,
-      path: '/auth/refresh',
-    );
-    await _persistSession(refreshedSession);
-    return refreshedSession;
+    try {
+      final response = await _unauthenticatedHttpClient.post(
+        '/auth/refresh',
+        body: {'refreshToken': currentSession.refreshToken},
+      );
+      final refreshedSession = _parseAuthResponse(
+        response,
+        path: '/auth/refresh',
+      );
+      await _persistSession(refreshedSession);
+      return refreshedSession;
+    } on UnauthorizedAppError {
+      await _clearSession();
+      return null;
+    } on ForbiddenAppError {
+      await _clearSession();
+      return null;
+    }
   }
 
   Future<void> _persistSession(AuthSession session) async {
