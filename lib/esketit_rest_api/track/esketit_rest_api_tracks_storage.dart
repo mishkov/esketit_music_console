@@ -1,7 +1,10 @@
 import 'dart:convert';
 
+import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
+import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
@@ -18,8 +21,6 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }) : _authenticatedHttpClient = authenticatedHttpClient,
        _baseUri = baseUri;
 
-  static const _defaultAlbumImagePath = 'placeholder';
-
   final HttpClient _authenticatedHttpClient;
   final Uri _baseUri;
 
@@ -27,18 +28,119 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   Future<StorageTracksList> getTracks() async {
     final tracksResponse = await _authenticatedHttpClient.get('/tracks');
     _throwIfUnexpectedStatus(tracksResponse, path: '/tracks');
-    final authorMaps = await _getAuthorMaps();
-    final authorsByIdMap = {
-      for (final author in authorMaps)
-        _parseAuthor(author).id!: _parseAuthor(author),
-    };
+    final authorsById = await _getAuthorsById();
 
     final tracks = _decodeJsonListOfMaps(
       tracksResponse.response,
       path: '/tracks',
-    ).map((track) => _parseTrack(track, authorsByIdMap)).toList();
+    ).map((track) => _parseTrack(track, authorsById)).toList();
 
     return StorageTracksList(tracks: tracks);
+  }
+
+  @override
+  Future<List<Album>> getAlbums({
+    int page = 1,
+    int pageSize = 100,
+    int? authorId,
+    String? query,
+    bool? isPublished,
+  }) async {
+    final response = await _authenticatedHttpClient.get(
+      _withQueryParameters('/albums', {
+        'page': '$page',
+        'pageSize': '$pageSize',
+        if (authorId != null) 'authorId': '$authorId',
+        if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
+        if (isPublished != null) 'isPublished': '$isPublished',
+      }),
+    );
+    _throwIfUnexpectedStatus(response, path: '/albums');
+
+    final authorsById = await _getAuthorsById();
+    final body = _decodeJsonMap(response.response, path: '/albums');
+    final items = (body['items'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>();
+
+    return items.map((album) => _parseAlbum(album, authorsById)).toList();
+  }
+
+  @override
+  Future<Album> getAlbum(int id) async {
+    final response = await _authenticatedHttpClient.get('/albums/$id');
+    _throwIfUnexpectedStatus(response, path: '/albums/$id');
+    return _parseAlbum(
+      _decodeJsonMap(response.response, path: '/albums/$id'),
+      await _getAuthorsById(),
+    );
+  }
+
+  @override
+  Future<Album> createAlbum(Album album) async {
+    final response = await _authenticatedHttpClient.post(
+      '/albums',
+      body: _serializeAlbum(album),
+    );
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/albums',
+      expectedStatusCodes: {201},
+    );
+    return _parseAlbum(
+      _decodeJsonMap(response.response, path: '/albums'),
+      await _getAuthorsById(),
+    );
+  }
+
+  @override
+  Future<Album> updateAlbum(Album album) async {
+    final id = album.id;
+    if (id == null) {
+      throw const AppError('Album ID is required for update');
+    }
+
+    final response = await _authenticatedHttpClient.put(
+      '/albums/$id',
+      body: _serializeAlbum(album),
+    );
+    _throwIfUnexpectedStatus(response, path: '/albums/$id');
+    return _parseAlbum(
+      _decodeJsonMap(response.response, path: '/albums/$id'),
+      await _getAuthorsById(),
+    );
+  }
+
+  @override
+  Future<List<Track>> getAlbumTracks(int albumId) async {
+    final response = await _authenticatedHttpClient.get(
+      '/albums/$albumId/tracks',
+    );
+    _throwIfUnexpectedStatus(response, path: '/albums/$albumId/tracks');
+    final authorsById = await _getAuthorsById();
+    return _decodeJsonListOfMaps(
+      response.response,
+      path: '/albums/$albumId/tracks',
+    ).map((track) => _parseTrack(track, authorsById)).toList();
+  }
+
+  @override
+  Future<void> deleteAlbum(int id) async {
+    final response = await _authenticatedHttpClient.delete('/albums/$id');
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/albums/$id',
+      expectedStatusCodes: {204},
+    );
+  }
+
+  @override
+  Future<String> uploadAlbumCover(Object file) async {
+    final uploaded = await _uploadBinaryFile(
+      path: '/album-covers',
+      file: file,
+      fallbackGetPathPrefix: '/album-covers/',
+    );
+    return uploaded.name;
   }
 
   @override
@@ -88,7 +190,15 @@ class EsketitRestApiTracksStorage implements TracksStorage {
 
   @override
   Future<void> putTrack(Track track) async {
-    final uploadedSong = await _uploadSong(track.file);
+    if (track.albumOrder == null) {
+      throw const AppError('Album order is required for track creation');
+    }
+
+    final uploadedSong = await _uploadBinaryFile(
+      path: '/songs',
+      file: track.file,
+      fallbackGetPathPrefix: '/songs/',
+    );
     final authorIds = await _resolveAuthorIds(track.authors);
 
     final response = await _authenticatedHttpClient.post(
@@ -96,14 +206,44 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       body: {
         'name': track.name,
         'authorIds': authorIds,
-        'albumImagePath': _defaultAlbumImagePath,
+        'albumId': track.albumId,
+        'albumOrder': track.albumOrder,
         'audioFilePath': uploadedSong.name,
+        'additionalInfo': _serializeTrackInfos(track.additionalInfo),
       },
     );
     _throwIfUnexpectedStatus(
       response,
       path: '/tracks',
       expectedStatusCodes: {201},
+    );
+  }
+
+  Album _parseAlbum(Map<String, dynamic> json, Map<int, Author> authorsById) {
+    final authorIds = (json['authorIds'] as List<dynamic>? ?? const [])
+        .whereType<num>()
+        .map((id) => id.toInt());
+
+    return Album(
+      id: (json['id'] as num?)?.toInt(),
+      title: (json['title'] as String?) ?? '',
+      coverImagePath: (json['coverImagePath'] as String?) ?? '',
+      authors: authorIds
+          .map(
+            (id) =>
+                authorsById[id] ??
+                Author(id: id, currentName: 'Unknown author #$id'),
+          )
+          .toList(),
+      releaseDate:
+          DateTime.tryParse((json['releaseDate'] as String?) ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      isPublished: json['isPublished'] as bool? ?? false,
+      trackIds: (json['trackIds'] as List<dynamic>? ?? const [])
+          .whereType<num>()
+          .map((id) => id.toInt())
+          .toList(),
+      additionalInfo: _parseTrackInfos(json['additionalInfo']),
     );
   }
 
@@ -114,6 +254,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
         .map((id) => id.toInt());
 
     return Track(
+      id: (json['id'] as num?)?.toInt(),
       name: (json['name'] as String?) ?? '',
       authors: authorIds
           .map(
@@ -122,7 +263,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
                 Author(id: id, currentName: 'Unknown author #$id'),
           )
           .toList(),
-      addionalInfo: const [],
+      albumId: (json['albumId'] as num?)?.toInt() ?? 0,
+      additionalInfo: _parseTrackInfos(json['additionalInfo']),
       file: StorageFile(
         name: audioFilePath,
         storagePath: audioFilePath,
@@ -133,9 +275,63 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     );
   }
 
-  Future<_SongInfo> _uploadSong(Object file) async {
+  List<TrackInfo> _parseTrackInfos(Object? rawInfos) {
+    return (rawInfos as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(_parseTrackInfo)
+        .whereType<TrackInfo>()
+        .toList();
+  }
+
+  TrackInfo? _parseTrackInfo(Map<String, dynamic> json) {
+    switch (json['type']) {
+      case 'text':
+        return TextTrackInfo(
+          title: (json['title'] as String?) ?? '',
+          text: (json['text'] as String?) ?? '',
+        );
+      default:
+        return null;
+    }
+  }
+
+  List<Map<String, dynamic>> _serializeTrackInfos(List<TrackInfo> infos) {
+    return infos
+        .map(_serializeTrackInfo)
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Map<String, dynamic>? _serializeTrackInfo(TrackInfo info) {
+    if (info is TextTrackInfo) {
+      return {'type': 'text', 'title': info.title, 'text': info.text};
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _serializeAlbum(Album album) {
+    return {
+      'title': album.title,
+      if (album.coverImagePath.trim().isNotEmpty)
+        'coverImagePath': album.coverImagePath.trim(),
+      'authorIds': album.authors
+          .map((author) => author.id)
+          .whereType<int>()
+          .toList(),
+      'releaseDate': album.releaseDate.toUtc().toIso8601String(),
+      'isPublished': album.isPublished,
+      'trackIds': album.trackIds,
+      'additionalInfo': _serializeTrackInfos(album.additionalInfo),
+    };
+  }
+
+  Future<_UploadedFileInfo> _uploadBinaryFile({
+    required String path,
+    required Object file,
+    required String fallbackGetPathPrefix,
+  }) async {
     if (file is StorageFile) {
-      return _SongInfo(name: file.storagePath, url: file.downloadUrl);
+      return _UploadedFileInfo(name: file.storagePath, url: file.downloadUrl);
     }
     if (file is! CrossFile) {
       throw UnsupportedError(
@@ -144,24 +340,20 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     }
 
     final response = await _authenticatedHttpClient.postMultipart(
-      '/songs',
+      path,
       fieldName: 'file',
       fileName: file.name,
       bytes: await file.readAsBytes(),
     );
-    _throwIfUnexpectedStatus(
-      response,
-      path: '/songs',
-      expectedStatusCodes: {201},
-    );
+    _throwIfUnexpectedStatus(response, path: path, expectedStatusCodes: {201});
 
-    final body = _decodeJsonMap(response.response, path: '/songs');
-    return _SongInfo(
+    final body = _decodeJsonMap(response.response, path: path);
+    return _UploadedFileInfo(
       name: (body['name'] as String?) ?? file.name,
       url: _baseUri
           .resolve(
             (body['url'] as String?) ??
-                '/songs/${Uri.encodeComponent(file.name)}',
+                '$fallbackGetPathPrefix${Uri.encodeComponent(file.name)}',
           )
           .toString(),
     );
@@ -178,7 +370,6 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     }
 
     final existingAuthors = await _getAuthorMaps();
-
     final authorIdsByName = <String, int>{
       for (final author in existingAuthors)
         ((author['currentName'] as String?) ?? '').trim(): (author['id'] as num)
@@ -212,6 +403,14 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     }
 
     return resolvedIds;
+  }
+
+  Future<Map<int, Author>> _getAuthorsById() async {
+    final authorMaps = await _getAuthorMaps();
+    return {
+      for (final author in authorMaps)
+        _parseAuthor(author).id!: _parseAuthor(author),
+    };
   }
 
   List<Map<String, dynamic>> _decodeJsonListOfMaps(
@@ -250,6 +449,17 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     );
   }
 
+  String _withQueryParameters(
+    String path,
+    Map<String, String> queryParameters,
+  ) {
+    final uri = Uri(
+      path: path,
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
+    );
+    return uri.toString();
+  }
+
   void _throwIfUnexpectedStatus(
     HttpResponse response, {
     required String path,
@@ -266,8 +476,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 }
 
-class _SongInfo {
-  const _SongInfo({required this.name, required this.url});
+class _UploadedFileInfo {
+  const _UploadedFileInfo({required this.name, required this.url});
 
   final String name;
   final String url;

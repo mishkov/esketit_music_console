@@ -2,6 +2,8 @@ import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_c
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
+import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
+import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
@@ -116,7 +118,7 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-enum _MainDestination { tracks, authors }
+enum _MainDestination { tracks, albums, authors }
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -127,6 +129,7 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   _MainDestination _destination = _MainDestination.tracks;
+  int _albumsSectionVersion = 0;
 
   @override
   void initState() {
@@ -154,13 +157,19 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
-      floatingActionButton: _destination == _MainDestination.tracks
-          ? FloatingActionButton.extended(
-              onPressed: _openAddTrackScreen,
-              icon: const Icon(Icons.library_add),
-              label: const Text('Add track'),
-            )
-          : null,
+      floatingActionButton: switch (_destination) {
+        _MainDestination.tracks => FloatingActionButton.extended(
+          onPressed: _openAddTrackScreen,
+          icon: const Icon(Icons.library_add),
+          label: const Text('Add track'),
+        ),
+        _MainDestination.albums => FloatingActionButton.extended(
+          onPressed: _openCreateAlbumScreen,
+          icon: const Icon(Icons.album_outlined),
+          label: const Text('Create album'),
+        ),
+        _MainDestination.authors => null,
+      },
       body: Row(
         children: [
           NavigationRail(
@@ -178,6 +187,11 @@ class _MainShellState extends State<MainShell> {
                 label: Text('Tracks'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.album_outlined),
+                selectedIcon: Icon(Icons.album),
+                label: Text('Albums'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.people_outline),
                 selectedIcon: Icon(Icons.people),
                 label: Text('Authors'),
@@ -191,6 +205,9 @@ class _MainShellState extends State<MainShell> {
               child: switch (_destination) {
                 _MainDestination.tracks => const TracksSection(
                   key: ValueKey('tracks'),
+                ),
+                _MainDestination.albums => AlbumsListScreen(
+                  key: ValueKey('albums-$_albumsSectionVersion'),
                 ),
                 _MainDestination.authors => const AuthorsListScreen(
                   key: ValueKey('authors'),
@@ -210,6 +227,19 @@ class _MainShellState extends State<MainShell> {
 
     if (didSave == true && mounted) {
       context.read<TrackListBloc>().add(const LoadTracks());
+    }
+  }
+
+  Future<void> _openCreateAlbumScreen() async {
+    final didSave = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EditAlbumScreen()));
+
+    if (didSave == true && mounted) {
+      setState(() {
+        _albumsSectionVersion += 1;
+        _destination = _MainDestination.albums;
+      });
     }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:cross_file/cross_file.dart';
+import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
@@ -44,14 +45,18 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
   final List<TextTrackInfo> _additionalInfos = [];
   final List<Author> _selectedAuthors = [];
   List<Author> _availableAuthors = const [];
+  List<Album> _availableAlbums = const [];
   CrossFile? _pickedFile;
   bool _isSaving = false;
   bool _isLoadingAuthors = true;
+  bool _isLoadingAlbums = true;
+  int? _selectedAlbumId;
 
   @override
   void initState() {
     super.initState();
     _loadAuthors();
+    _loadAlbums();
   }
 
   @override
@@ -73,7 +78,8 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_isLoadingAuthors) const LinearProgressIndicator(),
+                if (_isLoadingAuthors || _isLoadingAlbums)
+                  const LinearProgressIndicator(),
                 FilledButton.icon(
                   onPressed: _isSaving ? null : _pickFile,
                   icon: const Icon(Icons.upload_file),
@@ -94,6 +100,39 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
                     labelText: 'Title',
                     border: OutlineInputBorder(),
                   ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  key: ValueKey(
+                    'album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
+                  ),
+                  initialValue: _selectedAlbumId,
+                  items: _availableAlbums
+                      .map(
+                        (album) => DropdownMenuItem<int>(
+                          value: album.id,
+                          child: Text(album.title),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _isSaving || _isLoadingAlbums
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _selectedAlbumId = value;
+                          });
+                        },
+                  decoration: const InputDecoration(
+                    labelText: 'Album',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SelectionSummaryCard(
+                  title: 'Album position',
+                  value: _selectedAlbum == null
+                      ? 'Select an album'
+                      : 'Track will be added as item ${_selectedAlbum!.trackIds.length + 1}',
                 ),
                 const SizedBox(height: 16),
                 _AuthorPickerField(
@@ -200,6 +239,34 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load authors: $error')));
+    }
+  }
+
+  Future<void> _loadAlbums() async {
+    try {
+      final albums = await context.read<TracksStorage>().getAlbums();
+      if (!mounted) {
+        return;
+      }
+      albums.sort(
+        (left, right) =>
+            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      );
+      setState(() {
+        _availableAlbums = albums;
+        _selectedAlbumId = albums.isEmpty ? null : albums.first.id;
+        _isLoadingAlbums = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingAlbums = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load albums: $error')));
     }
   }
 
@@ -385,6 +452,13 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       );
       return;
     }
+    final selectedAlbum = _selectedAlbum;
+    if (selectedAlbum?.id == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Select an album first.')));
+      return;
+    }
     if (_selectedAuthors.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select at least one author.')),
@@ -401,7 +475,9 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
         Track(
           name: _titleController.text.trim(),
           authors: List<Author>.from(_selectedAuthors),
-          addionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+          albumId: selectedAlbum!.id!,
+          albumOrder: selectedAlbum.trackIds.length,
+          additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
           file: _pickedFile!,
         ),
       );
@@ -449,6 +525,15 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
     for (final author in _availableAuthors) {
       if (author.currentName.toLowerCase() == authorName.toLowerCase()) {
         return author;
+      }
+    }
+    return null;
+  }
+
+  Album? get _selectedAlbum {
+    for (final album in _availableAlbums) {
+      if (album.id == _selectedAlbumId) {
+        return album;
       }
     }
     return null;
