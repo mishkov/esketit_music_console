@@ -1,16 +1,19 @@
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
+import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api_telegram_import_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
+import 'package:esketit_music_console/ui/settings/settings_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
 import 'package:flutter/material.dart';
@@ -51,6 +54,11 @@ class AppRoot extends StatelessWidget {
           create: (_) => EsketitRestApiTracksStorage(
             authenticatedHttpClient: authenticatedHttpClient,
             baseUri: baseUri,
+          ),
+        ),
+        RepositoryProvider<TelegramImportRepository>(
+          create: (_) => EsketitRestApiTelegramImportRepository(
+            httpClient: authenticatedHttpClient,
           ),
         ),
       ],
@@ -118,7 +126,7 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-enum _MainDestination { tracks, albums, authors }
+enum _MainDestination { tracks, albums, authors, settings }
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -168,7 +176,7 @@ class _MainShellState extends State<MainShell> {
           icon: const Icon(Icons.album_outlined),
           label: const Text('Create album'),
         ),
-        _MainDestination.authors => null,
+        _MainDestination.authors || _MainDestination.settings => null,
       },
       body: Row(
         children: [
@@ -196,6 +204,11 @@ class _MainShellState extends State<MainShell> {
                 selectedIcon: Icon(Icons.people),
                 label: Text('Authors'),
               ),
+              NavigationRailDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings),
+                label: Text('Settings'),
+              ),
             ],
           ),
           const VerticalDivider(width: 1),
@@ -211,6 +224,9 @@ class _MainShellState extends State<MainShell> {
                 ),
                 _MainDestination.authors => const AuthorsListScreen(
                   key: ValueKey('authors'),
+                ),
+                _MainDestination.settings => const SettingsScreen(
+                  key: ValueKey('settings'),
                 ),
               },
             ),

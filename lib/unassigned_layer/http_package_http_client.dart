@@ -21,6 +21,20 @@ class HttpPackageHttpClient implements HttpClient {
   }
 
   @override
+  Future<BinaryHttpResponse> getBinary(
+    String path, {
+    Map<String, String>? headers,
+  }) async {
+    final response = await _client.get(_resolve(path), headers: headers);
+    return BinaryHttpResponse(
+      statusCode: response.statusCode,
+      bytes: response.bodyBytes,
+      contentType: response.headers['content-type'],
+      contentDisposition: response.headers['content-disposition'],
+    );
+  }
+
+  @override
   Future<HttpResponse> post(
     String path, {
     Map<String, String>? headers,

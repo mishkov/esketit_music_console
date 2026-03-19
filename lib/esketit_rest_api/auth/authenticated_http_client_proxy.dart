@@ -22,6 +22,19 @@ class AuthenticatedHttpClientProxy implements HttpClient {
   }
 
   @override
+  Future<BinaryHttpResponse> getBinary(
+    String path, {
+    Map<String, String>? headers,
+  }) {
+    return _sendBinaryAuthenticated(
+      path: path,
+      headers: headers,
+      send: (mergedHeaders) =>
+          _httpClient.getBinary(path, headers: mergedHeaders),
+    );
+  }
+
+  @override
   Future<HttpResponse> post(
     String path, {
     Map<String, String>? headers,
@@ -103,6 +116,31 @@ class AuthenticatedHttpClientProxy implements HttpClient {
     return response;
   }
 
+  Future<BinaryHttpResponse> _sendBinaryAuthenticated({
+    required String path,
+    required Map<String, String>? headers,
+    required Future<BinaryHttpResponse> Function(Map<String, String> headers)
+    send,
+  }) async {
+    final session = await refreshSession();
+    if (session == null) {
+      throw UnauthorizedAppError(path: path);
+    }
+
+    var response = await send(_authorizationHeaders(session, headers));
+    if (response.statusCode == 401) {
+      final refreshedSession = await refreshSession(forceRefresh: true);
+      if (refreshedSession == null) {
+        throw UnauthorizedAppError(path: path);
+      }
+
+      response = await send(_authorizationHeaders(refreshedSession, headers));
+    }
+
+    _throwIfUnauthorizedOrForbiddenBinary(response, path: path);
+    return response;
+  }
+
   static Map<String, String> _authorizationHeaders(
     AuthSession session,
     Map<String, String>? headers,
@@ -119,6 +157,18 @@ class AuthenticatedHttpClientProxy implements HttpClient {
     }
     if (response.statusCode == 403) {
       throw ForbiddenAppError(path: path, responseBody: response.response);
+    }
+  }
+
+  static void _throwIfUnauthorizedOrForbiddenBinary(
+    BinaryHttpResponse response, {
+    required String path,
+  }) {
+    if (response.statusCode == 401) {
+      throw UnauthorizedAppError(path: path);
+    }
+    if (response.statusCode == 403) {
+      throw ForbiddenAppError(path: path);
     }
   }
 }

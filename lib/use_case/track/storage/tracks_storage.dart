@@ -32,6 +32,8 @@ abstract class TracksStorage {
 
   Future<Author> getAuthor(int id);
 
+  Future<Author> createAuthor(Author author);
+
   Future<Author> updateAuthor(Author author);
 
   Future<void> deleteAuthor(int id);

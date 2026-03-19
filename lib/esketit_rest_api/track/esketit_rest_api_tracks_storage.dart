@@ -162,6 +162,20 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   @override
+  Future<Author> createAuthor(Author author) async {
+    final response = await _authenticatedHttpClient.post(
+      '/authors',
+      body: {'currentName': author.currentName, 'photos': author.photos},
+    );
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/authors',
+      expectedStatusCodes: {201},
+    );
+    return _parseAuthor(_decodeJsonMap(response.response, path: '/authors'));
+  }
+
+  @override
   Future<Author> updateAuthor(Author author) async {
     final id = author.id;
     if (id == null) {
