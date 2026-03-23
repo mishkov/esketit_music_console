@@ -32,7 +32,7 @@ class AppRoot extends StatelessWidget {
     final baseUri = Uri.parse(
       const String.fromEnvironment(
         'ESKETIT_API_BASE_URL',
-        defaultValue: 'http://localhost:8080',
+        defaultValue: 'http://46.101.162.92:8080',
       ),
     );
     final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
