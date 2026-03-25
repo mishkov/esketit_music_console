@@ -2,13 +2,16 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 class Mp3Metadata {
-  const Mp3Metadata({this.title, this.authors = const []});
+  const Mp3Metadata({this.title, this.album, this.authors = const []});
 
   final String? title;
+  final String? album;
   final List<String> authors;
 
   bool get hasData =>
-      (title != null && title!.trim().isNotEmpty) || authors.isNotEmpty;
+      (title != null && title!.trim().isNotEmpty) ||
+      (album != null && album!.trim().isNotEmpty) ||
+      authors.isNotEmpty;
 }
 
 Mp3Metadata parseMp3Metadata(Uint8List bytes) {
@@ -41,6 +44,7 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
   }
 
   String? title;
+  String? album;
   List<String> authors = const [];
 
   while (offset < tagEnd && offset < bytes.length) {
@@ -59,6 +63,8 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
       final frameData = bytes.sublist(offset, offset + frameSize);
       if (frameId == 'TT2') {
         title = _decodeTextFrame(frameData);
+      } else if (frameId == 'TAL') {
+        album = _decodeTextFrame(frameData);
       } else if (frameId == 'TP1') {
         authors = _splitAuthors(_decodeTextFrame(frameData));
       }
@@ -82,13 +88,19 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
     final frameData = bytes.sublist(offset, offset + frameSize);
     if (frameId == 'TIT2') {
       title = _decodeTextFrame(frameData);
+    } else if (frameId == 'TALB') {
+      album = _decodeTextFrame(frameData);
     } else if (frameId == 'TPE1') {
       authors = _splitAuthors(_decodeTextFrame(frameData));
     }
     offset += frameSize;
   }
 
-  return Mp3Metadata(title: _normalize(title), authors: authors);
+  return Mp3Metadata(
+    title: _normalize(title),
+    album: _normalize(album),
+    authors: authors,
+  );
 }
 
 Mp3Metadata _parseId3v1(Uint8List bytes) {
@@ -98,8 +110,13 @@ Mp3Metadata _parseId3v1(Uint8List bytes) {
 
   final title = _latin1(bytes.sublist(bytes.length - 125, bytes.length - 95));
   final artist = _latin1(bytes.sublist(bytes.length - 95, bytes.length - 65));
+  final album = _latin1(bytes.sublist(bytes.length - 65, bytes.length - 35));
 
-  return Mp3Metadata(title: _normalize(title), authors: _splitAuthors(artist));
+  return Mp3Metadata(
+    title: _normalize(title),
+    album: _normalize(album),
+    authors: _splitAuthors(artist),
+  );
 }
 
 String _ascii(Uint8List bytes, int offset, int length) {

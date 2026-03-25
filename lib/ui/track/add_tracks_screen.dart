@@ -352,7 +352,24 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       }
     });
 
+    _applyMetadataAlbum(metadata.album);
     await _applyMetadataAuthors(metadata.authors);
+  }
+
+  void _applyMetadataAlbum(String? metadataAlbum) {
+    final albumTitle = metadataAlbum?.trim();
+    if (albumTitle == null || albumTitle.isEmpty) {
+      return;
+    }
+
+    for (final album in _availableAlbums) {
+      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
+        setState(() {
+          _selectedAlbumId = album.id;
+        });
+        return;
+      }
+    }
   }
 
   Future<void> _applyMetadataAuthors(List<String> metadataAuthors) async {
@@ -615,7 +632,9 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       _titleController.clear();
       _additionalInfos.clear();
       _selectedAuthors.clear();
-      _selectedAlbumId = _availableAlbums.isEmpty ? null : _availableAlbums.first.id;
+      _selectedAlbumId = _availableAlbums.isEmpty
+          ? null
+          : _availableAlbums.first.id;
     });
   }
 }
@@ -1067,6 +1086,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   }
 
   Future<void> _refreshTelegramState() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isLoadingState = true;
     });
@@ -1207,6 +1229,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isStartingSession = true;
     });
@@ -1304,6 +1329,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   Future<void> _syncTrackStateWithSession(
     TelegramImportSession? session,
   ) async {
+    if (!mounted) {
+      return;
+    }
     final track = session?.currentTrack;
     if (track == null) {
       setState(() {
@@ -1363,6 +1391,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
           _titleController.text = currentTrack.parsedTitle;
         }
       });
+      _applyMetadataAlbum(metadata.album);
       await _applyMetadataAuthors(metadata.authors);
     } catch (error) {
       if (!mounted) {
@@ -1404,6 +1433,25 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
         _addSelectedAuthor(Author(currentName: authorName));
       }
     });
+  }
+
+  void _applyMetadataAlbum(String? metadataAlbum) {
+    if (!mounted) {
+      return;
+    }
+    final albumTitle = metadataAlbum?.trim();
+    if (albumTitle == null || albumTitle.isEmpty) {
+      return;
+    }
+
+    for (final album in _availableAlbums) {
+      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
+        setState(() {
+          _selectedAlbumId = album.id;
+        });
+        return;
+      }
+    }
   }
 
   Future<void> _showAuthorPicker() async {
@@ -1517,6 +1565,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isSaving = true;
     });
@@ -1556,6 +1607,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   }
 
   Future<void> _skipAndNext() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isSkipping = true;
     });
@@ -1611,6 +1665,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isCancelling = true;
     });
@@ -1647,6 +1704,9 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   }
 
   Future<void> _downloadSkippedReport() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _isDownloadingReport = true;
     });
