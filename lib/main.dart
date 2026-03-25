@@ -9,6 +9,7 @@ import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
 import 'package:esketit_music_console/ui/settings/settings_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
+import 'package:esketit_music_console/ui/track/edit_track_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
@@ -315,6 +316,7 @@ class TracksSection extends StatelessWidget {
                               horizontal: 12,
                               vertical: 4,
                             ),
+                            onTap: () => _openEditTrackScreen(context, track.id),
                             title: Text(track.name),
                             subtitle: Text(
                               [
@@ -323,6 +325,7 @@ class TracksSection extends StatelessWidget {
                               ].join('\n'),
                             ),
                             isThreeLine: true,
+                            trailing: const Icon(Icons.chevron_right),
                             tileColor: Theme.of(
                               context,
                             ).colorScheme.surfaceContainerLowest,
@@ -348,5 +351,22 @@ class TracksSection extends StatelessWidget {
       return 'File: ${file.name} (local)';
     }
     return 'File: unknown';
+  }
+
+  Future<void> _openEditTrackScreen(BuildContext context, int? trackId) async {
+    if (trackId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Track ID is missing.')),
+      );
+      return;
+    }
+
+    final didSave = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => EditTrackScreen(trackId: trackId)),
+    );
+
+    if (didSave == true && context.mounted) {
+      context.read<TrackListBloc>().add(const LoadTracks());
+    }
   }
 }

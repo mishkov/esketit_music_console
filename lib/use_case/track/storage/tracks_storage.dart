@@ -6,6 +6,12 @@ import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list
 abstract class TracksStorage {
   Future<void> putTrack(Track track);
 
+  Future<Track> getTrack(int id);
+
+  Future<Track> updateTrack(Track track);
+
+  Future<void> deleteTrack(int id);
+
   Future<StorageTracksList> getTracks();
 
   Future<List<Album>> getAlbums({

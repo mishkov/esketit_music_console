@@ -233,6 +233,62 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     );
   }
 
+  @override
+  Future<Track> getTrack(int id) async {
+    final response = await _authenticatedHttpClient.get('/tracks/$id');
+    _throwIfUnexpectedStatus(response, path: '/tracks/$id');
+    return _parseTrack(
+      _decodeJsonMap(response.response, path: '/tracks/$id'),
+      await _getAuthorsById(),
+    );
+  }
+
+  @override
+  Future<Track> updateTrack(Track track) async {
+    final id = track.id;
+    if (id == null) {
+      throw const AppError('Track ID is required for update');
+    }
+    final albumOrder = track.albumOrder;
+    if (albumOrder == null) {
+      throw const AppError('Album order is required for update');
+    }
+
+    final uploadedSong = await _uploadBinaryFile(
+      path: '/songs',
+      file: track.file,
+      fallbackGetPathPrefix: '/songs/',
+    );
+    final authorIds = await _resolveAuthorIds(track.authors);
+
+    final response = await _authenticatedHttpClient.put(
+      '/tracks/$id',
+      body: {
+        'name': track.name,
+        'authorIds': authorIds,
+        'albumId': track.albumId,
+        'albumOrder': albumOrder,
+        'audioFilePath': uploadedSong.name,
+        'additionalInfo': _serializeTrackInfos(track.additionalInfo),
+      },
+    );
+    _throwIfUnexpectedStatus(response, path: '/tracks/$id');
+    return _parseTrack(
+      _decodeJsonMap(response.response, path: '/tracks/$id'),
+      await _getAuthorsById(),
+    );
+  }
+
+  @override
+  Future<void> deleteTrack(int id) async {
+    final response = await _authenticatedHttpClient.delete('/tracks/$id');
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/tracks/$id',
+      expectedStatusCodes: {204},
+    );
+  }
+
   Album _parseAlbum(Map<String, dynamic> json, Map<int, Author> authorsById) {
     final authorIds = (json['authorIds'] as List<dynamic>? ?? const [])
         .whereType<num>()
