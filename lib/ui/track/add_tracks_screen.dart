@@ -13,6 +13,7 @@ import 'package:esketit_music_console/unassigned_layer/browser_file_download.dar
 import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
+import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -544,7 +545,15 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       if (!mounted) {
         return;
       }
-      Navigator.of(context).pop(true);
+      context.read<TrackListBloc>().add(const LoadTracks());
+      await _loadAlbums();
+      if (!mounted) {
+        return;
+      }
+      _resetForm();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Track successfully added.')),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -597,6 +606,17 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       }
     }
     return null;
+  }
+
+  void _resetForm() {
+    setState(() {
+      _isSaving = false;
+      _pickedFile = null;
+      _titleController.clear();
+      _additionalInfos.clear();
+      _selectedAuthors.clear();
+      _selectedAlbumId = _availableAlbums.isEmpty ? null : _availableAlbums.first.id;
+    });
   }
 }
 
