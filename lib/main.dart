@@ -1,3 +1,5 @@
+import 'package:esketit_music_console/domain/album.dart';
+import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api_telegram_import_repository.dart';
@@ -33,7 +35,9 @@ class AppRoot extends StatelessWidget {
     final baseUri = Uri.parse(
       const String.fromEnvironment(
         'ESKETIT_API_BASE_URL',
-        defaultValue: 'http://46.101.162.92:8080',
+        // DO NOT REMOVE ANY COMMENDTED LINES HERE BECAUSE THEY ARE USED TO QUICKLY SWITCH SERVER.
+        defaultValue: 'http://localhost:8080',
+        // defaultValue: 'http://46.101.162.92:8080',
       ),
     );
     final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
@@ -261,42 +265,260 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class TracksSection extends StatelessWidget {
+class TracksSection extends StatefulWidget {
   const TracksSection({super.key});
+
+  @override
+  State<TracksSection> createState() => _TracksSectionState();
+}
+
+class _TracksSectionState extends State<TracksSection> {
+  static const List<int> _pageSizeOptions = [20, 50, 100];
+  static const int _filterOptionsPageSize = 100;
+
+  late final TextEditingController _queryController;
+  List<Author> _authors = const [];
+  List<Album> _albums = const [];
+  int? _selectedAuthorId;
+  int? _selectedAlbumId;
+  bool _isLoadingFilterOptions = true;
+  String? _filterOptionsError;
+
+  @override
+  void initState() {
+    super.initState();
+    final state = context.read<TrackListBloc>().state;
+    _queryController = TextEditingController(text: state.query ?? '');
+    _selectedAuthorId = state.authorId;
+    _selectedAlbumId = state.albumId;
+    _loadFilterOptions();
+  }
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<TrackListBloc, TrackListState>(
       builder: (context, state) {
         return Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'Tracks',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () =>
-                        context.read<TrackListBloc>().add(const LoadTracks()),
-                    tooltip: 'Reload tracks',
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (state.errorMessage != null) ...[
-                Text(
-                  state.errorMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+              Container(
+                padding: const EdgeInsets.only(top: 16),
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Tracks',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => context.read<TrackListBloc>().add(
+                            const LoadTracks(),
+                          ),
+                          tooltip: 'Reload tracks',
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 280,
+                          child: TextField(
+                            controller: _queryController,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) => _applyFilters(),
+                            decoration: const InputDecoration(
+                              labelText: 'Search by track name',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.search),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 240,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (notification) {
+                              return true;
+                            },
+                            child: DropdownMenu<int>(
+                              key: ValueKey(_selectedAuthorId),
+                              width: 240,
+                              initialSelection: _selectedAuthorId,
+                              enableFilter: true,
+                              enableSearch: true,
+                              requestFocusOnTap: true,
+                              menuStyle: _filterMenuStyle,
+                              onSelected: state.isLoading
+                                  ? null
+                                  : (value) {
+                                      setState(() {
+                                        _selectedAuthorId = value;
+                                      });
+                                    },
+                              dropdownMenuEntries: _authorEntries,
+                              label: Text(
+                                _isLoadingFilterOptions
+                                    ? 'Loading authors...'
+                                    : 'Author',
+                              ),
+                              hintText: _isLoadingFilterOptions
+                                  ? 'Loading authors...'
+                                  : 'All authors',
+                              inputDecorationTheme: const InputDecorationTheme(
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 280,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (notification) {
+                              return true;
+                            },
+                            child: DropdownMenu<int>(
+                              key: ValueKey(_selectedAlbumId),
+                              width: 280,
+                              initialSelection: _selectedAlbumId,
+                              enableFilter: true,
+                              enableSearch: true,
+                              requestFocusOnTap: true,
+                              menuStyle: _filterMenuStyle,
+                              onSelected: state.isLoading
+                                  ? null
+                                  : (value) {
+                                      setState(() {
+                                        _selectedAlbumId = value;
+                                      });
+                                    },
+                              dropdownMenuEntries: _albumEntries,
+                              label: Text(
+                                _isLoadingFilterOptions
+                                    ? 'Loading albums...'
+                                    : 'Album',
+                              ),
+                              hintText: _isLoadingFilterOptions
+                                  ? 'Loading albums...'
+                                  : 'All albums',
+                              inputDecorationTheme: const InputDecorationTheme(
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: state.isLoading ? null : _applyFilters,
+                          icon: const Icon(Icons.filter_alt),
+                          label: const Text('Apply'),
+                        ),
+                        TextButton(
+                          onPressed: state.isLoading ? null : _clearFilters,
+                          child: const Text('Clear'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (state.errorMessage != null) ...[
+                      Text(
+                        state.errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_filterOptionsError != null) ...[
+                      Text(
+                        _filterOptionsError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (state.isLoading) const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          'Page ${state.page} of ${state.totalPages == 0 ? 1 : state.totalPages}',
+                        ),
+                        Text('Items: ${state.totalItems}'),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('Page size: '),
+                            DropdownButton<int>(
+                              value: _pageSizeOptions.contains(state.pageSize)
+                                  ? state.pageSize
+                                  : _pageSizeOptions.first,
+                              items: _pageSizeOptions
+                                  .map(
+                                    (value) => DropdownMenuItem<int>(
+                                      value: value,
+                                      child: Text('$value'),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: state.isLoading
+                                  ? null
+                                  : (value) {
+                                      if (value == null) {
+                                        return;
+                                      }
+                                      context.read<TrackListBloc>().add(
+                                        LoadTracks(pageSize: value),
+                                      );
+                                    },
+                            ),
+                          ],
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: state.isLoading || state.page <= 1
+                              ? null
+                              : () => context.read<TrackListBloc>().add(
+                                  LoadTracks(page: state.page - 1),
+                                ),
+                          icon: const Icon(Icons.chevron_left),
+                          label: const Text('Previous'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed:
+                              state.isLoading ||
+                                  state.totalPages == 0 ||
+                                  state.page >= state.totalPages
+                              ? null
+                              : () => context.read<TrackListBloc>().add(
+                                  LoadTracks(page: state.page + 1),
+                                ),
+                          icon: const Icon(Icons.chevron_right),
+                          label: const Text('Next'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-              ],
-              if (state.isLoading) const LinearProgressIndicator(),
+              ),
               const SizedBox(height: 12),
               Expanded(
                 child: state.tracks.isEmpty && !state.isLoading
@@ -316,7 +538,8 @@ class TracksSection extends StatelessWidget {
                               horizontal: 12,
                               vertical: 4,
                             ),
-                            onTap: () => _openEditTrackScreen(context, track.id),
+                            onTap: () =>
+                                _openEditTrackScreen(context, track.id),
                             title: Text(track.name),
                             subtitle: Text(
                               [
@@ -343,6 +566,33 @@ class TracksSection extends StatelessWidget {
     );
   }
 
+  void _applyFilters() {
+    context.read<TrackListBloc>().add(
+      LoadTracks(
+        page: 1,
+        query: _queryController.text,
+        authorId: _selectedAuthorId,
+        albumId: _selectedAlbumId,
+      ),
+    );
+  }
+
+  void _clearFilters() {
+    _queryController.clear();
+    setState(() {
+      _selectedAuthorId = null;
+      _selectedAlbumId = null;
+    });
+    context.read<TrackListBloc>().add(
+      const LoadTracks(
+        page: 1,
+        clearQuery: true,
+        clearAuthorId: true,
+        clearAlbumId: true,
+      ),
+    );
+  }
+
   String _fileLabel(Object file) {
     if (file is StorageFile) {
       return 'File: ${file.name} (${file.downloadUrl})';
@@ -355,9 +605,9 @@ class TracksSection extends StatelessWidget {
 
   Future<void> _openEditTrackScreen(BuildContext context, int? trackId) async {
     if (trackId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Track ID is missing.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Track ID is missing.')));
       return;
     }
 
@@ -367,6 +617,88 @@ class TracksSection extends StatelessWidget {
 
     if (didSave == true && context.mounted) {
       context.read<TrackListBloc>().add(const LoadTracks());
+    }
+  }
+
+  List<DropdownMenuEntry<int>> get _authorEntries => _authors
+      .where((author) => author.id != null)
+      .map(
+        (author) => DropdownMenuEntry<int>(
+          value: author.id!,
+          label: '${author.currentName} (#${author.id})',
+        ),
+      )
+      .toList();
+
+  List<DropdownMenuEntry<int>> get _albumEntries => _albums
+      .where((album) => album.id != null)
+      .map(
+        (album) => DropdownMenuEntry<int>(
+          value: album.id!,
+          label: '${album.title} (#${album.id})',
+        ),
+      )
+      .toList();
+
+  MenuStyle get _filterMenuStyle => const MenuStyle(
+    alignment: AlignmentDirectional.bottomStart,
+    maximumSize: WidgetStatePropertyAll(Size.fromHeight(400)),
+  );
+
+  Future<void> _loadFilterOptions() async {
+    setState(() {
+      _isLoadingFilterOptions = true;
+      _filterOptionsError = null;
+    });
+
+    try {
+      final storage = context.read<TracksStorage>();
+      final authors = await storage.getAuthors();
+      final albums = await _loadAllAlbums(storage);
+      authors.sort(
+        (left, right) => left.currentName.toLowerCase().compareTo(
+          right.currentName.toLowerCase(),
+        ),
+      );
+      albums.sort(
+        (left, right) =>
+            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _authors = authors;
+        _albums = albums;
+        _isLoadingFilterOptions = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingFilterOptions = false;
+        _filterOptionsError = 'Failed to load author/album filters: $error';
+      });
+    }
+  }
+
+  Future<List<Album>> _loadAllAlbums(TracksStorage storage) async {
+    final albums = <Album>[];
+    var page = 1;
+
+    while (true) {
+      final chunk = await storage.getAlbums(
+        page: page,
+        pageSize: _filterOptionsPageSize,
+      );
+      albums.addAll(chunk);
+      if (chunk.length < _filterOptionsPageSize) {
+        return albums;
+      }
+      page += 1;
     }
   }
 }

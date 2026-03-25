@@ -25,17 +25,38 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   final Uri _baseUri;
 
   @override
-  Future<StorageTracksList> getTracks() async {
-    final tracksResponse = await _authenticatedHttpClient.get('/tracks');
+  Future<StorageTracksList> getTracks({
+    int page = 1,
+    int pageSize = 20,
+    String? query,
+    int? authorId,
+    int? albumId,
+  }) async {
+    final tracksResponse = await _authenticatedHttpClient.get(
+      _withQueryParameters('/tracks', {
+        'page': '$page',
+        'pageSize': '$pageSize',
+        if (query != null && query.trim().isNotEmpty) 'query': query.trim(),
+        if (authorId != null) 'authorId': '$authorId',
+        if (albumId != null) 'albumId': '$albumId',
+      }),
+    );
     _throwIfUnexpectedStatus(tracksResponse, path: '/tracks');
     final authorsById = await _getAuthorsById();
+    final body = _decodeJsonMap(tracksResponse.response, path: '/tracks');
 
-    final tracks = _decodeJsonListOfMaps(
-      tracksResponse.response,
-      path: '/tracks',
-    ).map((track) => _parseTrack(track, authorsById)).toList();
+    final tracks = (body['items'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((track) => _parseTrack(track, authorsById))
+        .toList();
 
-    return StorageTracksList(tracks: tracks);
+    return StorageTracksList(
+      tracks: tracks,
+      page: (body['page'] as num?)?.toInt() ?? page,
+      pageSize: (body['pageSize'] as num?)?.toInt() ?? pageSize,
+      totalItems: (body['totalItems'] as num?)?.toInt() ?? tracks.length,
+      totalPages: (body['totalPages'] as num?)?.toInt() ?? 0,
+    );
   }
 
   @override

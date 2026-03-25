@@ -12,7 +12,13 @@ abstract class TracksStorage {
 
   Future<void> deleteTrack(int id);
 
-  Future<StorageTracksList> getTracks();
+  Future<StorageTracksList> getTracks({
+    int page,
+    int pageSize,
+    String? query,
+    int? authorId,
+    int? albumId,
+  });
 
   Future<List<Album>> getAlbums({
     int page,
