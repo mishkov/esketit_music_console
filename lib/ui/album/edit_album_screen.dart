@@ -461,15 +461,6 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       ).showSnackBar(const SnackBar(content: Text('Album title is required.')));
       return;
     }
-    if (_isPublished && _tracks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Albums without tracks cannot be published.'),
-        ),
-      );
-      return;
-    }
-
     setState(() {
       _isSaving = true;
       _errorMessage = null;
