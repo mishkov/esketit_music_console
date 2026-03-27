@@ -28,7 +28,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isUploadingCover = false;
-  bool _isPublished = false;
+  bool _isPublished = true;
   String? _errorMessage;
   DateTime _releaseDate = DateTime.now().toUtc();
   Album? _album;
