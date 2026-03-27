@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
@@ -31,19 +32,24 @@ class _AddTracksScreenState extends State<AddTracksScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Add Tracks'),
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Upload single file'),
+              Tab(text: 'Import from ZIP'),
               Tab(text: 'Import from Telegram'),
             ],
           ),
         ),
         body: const TabBarView(
-          children: [_UploadSingleFileTab(), _TelegramImportTab()],
+          children: [
+            _UploadSingleFileTab(),
+            _ZipImportTab(),
+            _TelegramImportTab(),
+          ],
         ),
       ),
     );
@@ -666,6 +672,953 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
           ? null
           : _availableAlbums.first.id;
     });
+  }
+}
+
+class _ZipImportEntry {
+  const _ZipImportEntry({
+    required this.fileName,
+    required this.bytes,
+    required this.metadata,
+  });
+
+  final String fileName;
+  final Uint8List bytes;
+  final Mp3Metadata metadata;
+
+  String get mimeType => 'audio/mpeg';
+}
+
+class _ZipImportSession {
+  const _ZipImportSession({
+    required this.zipFileName,
+    required this.entries,
+    this.currentIndex = 0,
+    this.savedCount = 0,
+    this.skippedCount = 0,
+  });
+
+  final String zipFileName;
+  final List<_ZipImportEntry> entries;
+  final int currentIndex;
+  final int savedCount;
+  final int skippedCount;
+
+  _ZipImportEntry? get currentEntry =>
+      currentIndex >= 0 && currentIndex < entries.length
+      ? entries[currentIndex]
+      : null;
+
+  bool get isCompleted => currentIndex >= entries.length;
+
+  int get processedCount => savedCount + skippedCount;
+
+  int get totalCount => entries.length;
+
+  int get remainingCount => totalCount - processedCount;
+
+  _ZipImportSession nextAfterSave() {
+    return _ZipImportSession(
+      zipFileName: zipFileName,
+      entries: entries,
+      currentIndex: currentIndex + 1,
+      savedCount: savedCount + 1,
+      skippedCount: skippedCount,
+    );
+  }
+
+  _ZipImportSession nextAfterSkip() {
+    return _ZipImportSession(
+      zipFileName: zipFileName,
+      entries: entries,
+      currentIndex: currentIndex + 1,
+      savedCount: savedCount,
+      skippedCount: skippedCount + 1,
+    );
+  }
+}
+
+class _ZipImportTab extends StatefulWidget {
+  const _ZipImportTab();
+
+  @override
+  State<_ZipImportTab> createState() => _ZipImportTabState();
+}
+
+class _ZipImportTabState extends State<_ZipImportTab> {
+  final _titleController = TextEditingController();
+  final List<TextTrackInfo> _additionalInfos = [];
+  final List<Author> _selectedAuthors = [];
+  List<Author> _availableAuthors = const [];
+  List<Album> _availableAlbums = const [];
+
+  _ZipImportSession? _session;
+  int? _selectedAlbumId;
+  bool _isLoadingAuthors = true;
+  bool _isLoadingAlbums = true;
+  bool _isStartingImport = false;
+  bool _isSaving = false;
+  bool _isSkipping = false;
+  bool _isCancelling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthors();
+    _loadAlbums();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = _session;
+    final currentEntry = session?.currentEntry;
+    final selectedAlbum = _selectedAlbum;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 860),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isLoadingAuthors || _isLoadingAlbums)
+                  const LinearProgressIndicator(),
+                if (session == null)
+                  _buildSessionStarter(context)
+                else if (session.isCompleted)
+                  _buildCompletedState(context, session)
+                else if (currentEntry != null)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Current ZIP track',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: [
+                                  _SelectionSummaryCard(
+                                    title: 'ZIP file',
+                                    value: session.zipFileName,
+                                  ),
+                                  _SelectionSummaryCard(
+                                    title: 'Progress',
+                                    value:
+                                        '${session.processedCount}/${session.totalCount}',
+                                  ),
+                                  _SelectionSummaryCard(
+                                    title: 'Remaining',
+                                    value: '${session.remainingCount}',
+                                  ),
+                                  _SelectionSummaryCard(
+                                    title: 'Skipped',
+                                    value: '${session.skippedCount}',
+                                  ),
+                                  _SelectionSummaryCard(
+                                    title: 'Saved',
+                                    value: '${session.savedCount}',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              _SelectionSummaryCard(
+                                title: 'Audio file',
+                                value:
+                                    '${currentEntry.fileName}\n${currentEntry.mimeType} • ${_formatBytes(currentEntry.bytes.length)}',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _titleController,
+                        enabled: !_isSaving && !_isSkipping && !_isCancelling,
+                        decoration: const InputDecoration(
+                          labelText: 'Title',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        key: ValueKey(
+                          'zip-album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
+                        ),
+                        initialValue: _selectedAlbumId,
+                        items: [
+                          ..._availableAlbums.map(
+                            (album) => DropdownMenuItem<int>(
+                              value: album.id,
+                              child: Text(album.title),
+                            ),
+                          ),
+                          const DropdownMenuItem<int>(
+                            value: _createAlbumOptionValue,
+                            child: Text('Create new album...'),
+                          ),
+                        ],
+                        onChanged:
+                            _isSaving ||
+                                _isSkipping ||
+                                _isCancelling ||
+                                _isLoadingAlbums
+                            ? null
+                            : _onAlbumChanged,
+                        decoration: const InputDecoration(
+                          labelText: 'Album',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _SelectionSummaryCard(
+                        title: 'Album position',
+                        value: selectedAlbum == null
+                            ? 'Select an album'
+                            : 'Track will be added as item ${selectedAlbum.trackIds.length + 1}',
+                      ),
+                      const SizedBox(height: 16),
+                      _AuthorPickerField(
+                        authors: _selectedAuthors,
+                        isLoading: _isLoadingAuthors,
+                        onTap: _isSaving || _isSkipping || _isCancelling
+                            ? null
+                            : _showAuthorPicker,
+                        onRemove: _isSaving || _isSkipping || _isCancelling
+                            ? null
+                            : _removeAuthor,
+                      ),
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Additional infos',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      if (_additionalInfos.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'No additional infos yet.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        )
+                      else
+                        ..._additionalInfos.asMap().entries.map(
+                          (entry) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _AdditionalInfoCard(
+                              info: entry.value,
+                              onDelete:
+                                  _isSaving || _isSkipping || _isCancelling
+                                  ? null
+                                  : () => _removeAdditionalInfo(entry.key),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      MenuAnchor(
+                        menuChildren: [
+                          MenuItemButton(
+                            onPressed: _showAddTextInfoDialog,
+                            child: const Text('Text info'),
+                          ),
+                        ],
+                        builder: (context, controller, child) {
+                          return FilledButton.tonalIcon(
+                            onPressed: _isSaving || _isSkipping || _isCancelling
+                                ? null
+                                : () => controller.isOpen
+                                      ? controller.close()
+                                      : controller.open(),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add additional info'),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      if (_isSaving || _isSkipping || _isCancelling)
+                        const LinearProgressIndicator(),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: _isSaving || _isSkipping || _isCancelling
+                                ? null
+                                : _cancelSession,
+                            child: const Text('Cancel session'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton.tonal(
+                            onPressed: _isSaving || _isSkipping || _isCancelling
+                                ? null
+                                : _skipAndNext,
+                            child: const Text('Skip and next'),
+                          ),
+                          const SizedBox(width: 12),
+                          FilledButton(
+                            onPressed: _isSaving || _isSkipping || _isCancelling
+                                ? null
+                                : _saveAndNext,
+                            child: const Text('Save and next'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                else
+                  _TelegramInfoBanner(
+                    message:
+                        'ZIP import session is active but no current track is available.',
+                    actionLabel: 'Cancel session',
+                    onAction: _cancelSession,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSessionStarter(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Start ZIP import',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Pick a ZIP archive that contains MP3 files. The browser will unpack it locally and open tracks one by one for review.',
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _isStartingImport ? null : _startSession,
+              icon: const Icon(Icons.folder_zip_outlined),
+              label: Text(
+                _isStartingImport ? 'Opening ZIP...' : 'Pick ZIP file',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompletedState(BuildContext context, _ZipImportSession session) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Import completed',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            Text('ZIP file: ${session.zipFileName}'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _SelectionSummaryCard(
+                  title: 'Saved',
+                  value: '${session.savedCount}',
+                ),
+                _SelectionSummaryCard(
+                  title: 'Skipped',
+                  value: '${session.skippedCount}',
+                ),
+                _SelectionSummaryCard(
+                  title: 'Processed',
+                  value: '${session.processedCount}/${session.totalCount}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: _isCancelling ? null : _clearCompletedSession,
+              child: Text(_isCancelling ? 'Clearing...' : 'Clear session'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadAuthors() async {
+    try {
+      final authors = await context.read<TracksStorage>().getAuthors();
+      if (!mounted) {
+        return;
+      }
+      authors.sort(
+        (left, right) => left.currentName.toLowerCase().compareTo(
+          right.currentName.toLowerCase(),
+        ),
+      );
+      setState(() {
+        _availableAuthors = authors;
+        _isLoadingAuthors = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingAuthors = false;
+      });
+      _showMessage('Failed to load authors: $error');
+    }
+  }
+
+  Future<void> _loadAlbums() async {
+    try {
+      final albums = await context.read<TracksStorage>().getAlbums();
+      if (!mounted) {
+        return;
+      }
+      albums.sort(
+        (left, right) =>
+            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      );
+      setState(() {
+        _availableAlbums = albums;
+        if (!_availableAlbums.any((album) => album.id == _selectedAlbumId)) {
+          _selectedAlbumId = albums.isEmpty ? null : albums.first.id;
+        }
+        _isLoadingAlbums = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingAlbums = false;
+      });
+      _showMessage('Failed to load albums: $error');
+    }
+  }
+
+  Future<void> _startSession() async {
+    final result = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+    );
+    final file = result?.files.single;
+    if (file == null || file.bytes == null) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isStartingImport = true;
+    });
+
+    try {
+      final archive = ZipDecoder().decodeBytes(file.bytes!);
+      final mp3Entries = archive.files
+          .where((entry) => entry.isFile)
+          .where((entry) => entry.name.toLowerCase().endsWith('.mp3'))
+          .map((entry) {
+            final bytes = _archiveEntryBytes(entry);
+            return _ZipImportEntry(
+              fileName: entry.name.split('/').last,
+              bytes: bytes,
+              metadata: parseMp3Metadata(bytes),
+            );
+          })
+          .toList();
+
+      if (mp3Entries.isEmpty) {
+        throw const FormatException(
+          'The selected ZIP does not contain MP3 files.',
+        );
+      }
+
+      final session = _ZipImportSession(
+        zipFileName: file.name,
+        entries: mp3Entries,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _session = session;
+        _isStartingImport = false;
+      });
+      await _syncTrackStateWithSession(session);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isStartingImport = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _syncTrackStateWithSession(_ZipImportSession? session) async {
+    if (!mounted) {
+      return;
+    }
+
+    final entry = session?.currentEntry;
+    if (entry == null) {
+      setState(() {
+        _titleController.clear();
+        _additionalInfos.clear();
+        _selectedAuthors.clear();
+      });
+      return;
+    }
+
+    setState(() {
+      _titleController.text = (entry.metadata.title?.trim().isNotEmpty ?? false)
+          ? entry.metadata.title!
+          : _titleFromFileName(entry.fileName);
+      _additionalInfos.clear();
+      _selectedAuthors.clear();
+      if (!_availableAlbums.any((album) => album.id == _selectedAlbumId)) {
+        _selectedAlbumId = _availableAlbums.isEmpty
+            ? null
+            : _availableAlbums.first.id;
+      }
+    });
+
+    await _applyMetadataAlbum(
+      entry.metadata.album,
+      metadataReleaseDate: entry.metadata.releaseDate,
+    );
+    await _applyMetadataAuthors(entry.metadata.authors);
+  }
+
+  Future<void> _onAlbumChanged(int? value) async {
+    if (value == _createAlbumOptionValue) {
+      await _openCreateAlbumScreen();
+      return;
+    }
+
+    setState(() {
+      _selectedAlbumId = value;
+    });
+  }
+
+  Future<void> _openCreateAlbumScreen({
+    String? initialTitle,
+    DateTime? initialReleaseDate,
+  }) async {
+    final savedAlbum = await Navigator.of(context).push<Album>(
+      MaterialPageRoute(
+        builder: (_) => EditAlbumScreen(
+          initialTitle: initialTitle,
+          initialReleaseDate: initialReleaseDate,
+        ),
+      ),
+    );
+
+    if (savedAlbum?.id == null || !mounted) {
+      return;
+    }
+
+    await _loadAlbums();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedAlbumId = savedAlbum!.id;
+    });
+  }
+
+  Future<void> _applyMetadataAuthors(List<String> metadataAuthors) async {
+    if (metadataAuthors.isEmpty) {
+      return;
+    }
+
+    final knownAuthors = <Author>[];
+    final newAuthors = <String>[];
+
+    for (final authorName in metadataAuthors) {
+      final existingAuthor = _findAvailableAuthor(authorName);
+      if (existingAuthor != null) {
+        knownAuthors.add(existingAuthor);
+      } else {
+        newAuthors.add(authorName);
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      for (final author in knownAuthors) {
+        _addSelectedAuthor(author);
+      }
+      for (final authorName in newAuthors) {
+        _addSelectedAuthor(Author(currentName: authorName));
+      }
+    });
+  }
+
+  Future<void> _applyMetadataAlbum(
+    String? metadataAlbum, {
+    DateTime? metadataReleaseDate,
+  }) async {
+    if (!mounted) {
+      return;
+    }
+    final albumTitle = metadataAlbum?.trim();
+    if (albumTitle == null || albumTitle.isEmpty) {
+      return;
+    }
+
+    for (final album in _availableAlbums) {
+      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
+        setState(() {
+          _selectedAlbumId = album.id;
+        });
+        return;
+      }
+    }
+
+    final result = await showDialog<_AlbumChoiceDialogResult>(
+      context: context,
+      builder: (context) {
+        return _AlbumChoiceDialog(
+          metadataAlbumTitle: albumTitle,
+          availableAlbums: _availableAlbums,
+        );
+      },
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    if (result.albumId != null) {
+      setState(() {
+        _selectedAlbumId = result.albumId;
+      });
+      return;
+    }
+
+    if (result.shouldCreateNew) {
+      await _openCreateAlbumScreen(
+        initialTitle: albumTitle,
+        initialReleaseDate: metadataReleaseDate,
+      );
+    }
+  }
+
+  Future<void> _showAuthorPicker() async {
+    final pickedAuthors = await showDialog<List<Author>>(
+      context: context,
+      builder: (context) => _AuthorPickerDialog(
+        availableAuthors: _availableAuthors,
+        initiallySelectedAuthors: _selectedAuthors,
+      ),
+    );
+
+    if (pickedAuthors == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedAuthors
+        ..clear()
+        ..addAll(pickedAuthors);
+    });
+  }
+
+  Future<void> _showAddTextInfoDialog() async {
+    final titleController = TextEditingController();
+    final textController = TextEditingController();
+
+    final info = await showDialog<TextTrackInfo>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Add text info'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Info title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: textController,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Info text',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final title = titleController.text.trim();
+                final text = textController.text.trim();
+                if (title.isEmpty && text.isEmpty) {
+                  Navigator.of(context).pop();
+                  return;
+                }
+                Navigator.of(
+                  context,
+                ).pop(TextTrackInfo(title: title, text: text));
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        );
+      },
+    );
+
+    titleController.dispose();
+    textController.dispose();
+
+    if (info == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _additionalInfos.add(info);
+    });
+  }
+
+  Future<void> _saveAndNext() async {
+    final session = _session;
+    final entry = session?.currentEntry;
+    final title = _titleController.text.trim();
+    final selectedAlbum = _selectedAlbum;
+
+    if (entry == null) {
+      _showMessage('No ZIP track is loaded.');
+      return;
+    }
+    if (title.isEmpty) {
+      _showMessage('Title is required.');
+      return;
+    }
+    if (selectedAlbum?.id == null) {
+      _showMessage('Select an album first.');
+      return;
+    }
+    if (_selectedAuthors.isEmpty) {
+      _showMessage('Select at least one author.');
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final xFile = XFile.fromData(
+        entry.bytes,
+        name: entry.fileName,
+        mimeType: entry.mimeType,
+      );
+      await context.read<TracksStorage>().putTrack(
+        Track(
+          name: title,
+          authors: List<Author>.from(_selectedAuthors),
+          albumId: selectedAlbum!.id!,
+          albumOrder: selectedAlbum.trackIds.length,
+          additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+          file: CrossFile(file: xFile),
+        ),
+      );
+      await _loadAlbums();
+      if (!mounted) {
+        return;
+      }
+
+      final updatedSession = session!.nextAfterSave();
+      setState(() {
+        _session = updatedSession;
+        _isSaving = false;
+      });
+      context.read<TrackListBloc>().add(const LoadTracks());
+      await _syncTrackStateWithSession(updatedSession);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _skipAndNext() async {
+    final session = _session;
+    if (session == null) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSkipping = true;
+    });
+
+    final updatedSession = session.nextAfterSkip();
+    setState(() {
+      _session = updatedSession;
+      _isSkipping = false;
+    });
+    await _syncTrackStateWithSession(updatedSession);
+  }
+
+  Future<void> _cancelSession() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isCancelling = true;
+    });
+
+    setState(() {
+      _session = null;
+      _titleController.clear();
+      _additionalInfos.clear();
+      _selectedAuthors.clear();
+      _isCancelling = false;
+    });
+  }
+
+  Future<void> _clearCompletedSession() async {
+    await _cancelSession();
+  }
+
+  void _removeAuthor(Author author) {
+    setState(() {
+      _selectedAuthors.remove(author);
+    });
+  }
+
+  void _removeAdditionalInfo(int index) {
+    setState(() {
+      _additionalInfos.removeAt(index);
+    });
+  }
+
+  void _addSelectedAuthor(Author author) {
+    final exists = _selectedAuthors.any(
+      (selected) =>
+          selected.currentName.toLowerCase() ==
+          author.currentName.toLowerCase(),
+    );
+    if (!exists) {
+      _selectedAuthors.add(author);
+    }
+  }
+
+  Author? _findAvailableAuthor(String authorName) {
+    for (final author in _availableAuthors) {
+      if (author.currentName.toLowerCase() == authorName.toLowerCase()) {
+        return author;
+      }
+    }
+    return null;
+  }
+
+  Album? get _selectedAlbum {
+    for (final album in _availableAlbums) {
+      if (album.id == _selectedAlbumId) {
+        return album;
+      }
+    }
+    return null;
+  }
+
+  String _titleFromFileName(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    final nameWithoutExtension = dotIndex > 0
+        ? fileName.substring(0, dotIndex)
+        : fileName;
+    return nameWithoutExtension.replaceAll('_', ' ').trim();
+  }
+
+  Uint8List _archiveEntryBytes(ArchiveFile entry) {
+    return Uint8List.fromList(entry.content as List<int>);
+  }
+
+  String _errorMessageFrom(Object error) {
+    if (error is HttpAppError) {
+      return error.message;
+    }
+    if (error is FormatException) {
+      return error.message;
+    }
+    return error.toString();
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
