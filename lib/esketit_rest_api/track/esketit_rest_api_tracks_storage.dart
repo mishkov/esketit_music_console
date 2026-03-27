@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
@@ -155,6 +156,24 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   @override
+  Future<List<MediaFileInfo>> getUnusedSongs() async {
+    final response = await _authenticatedHttpClient.get('/songs/unused');
+    _throwIfUnexpectedStatus(response, path: '/songs/unused');
+    return _decodeJsonListOfMaps(
+      response.response,
+      path: '/songs/unused',
+    ).map(_parseMediaFileInfo).toList();
+  }
+
+  @override
+  Future<void> deleteSongFile(String songReference) async {
+    await _deleteSongFileIfPossible(
+      songReference,
+      ignoreReferencedOrMissing: false,
+    );
+  }
+
+  @override
   Future<String> uploadAlbumCover(Object file) async {
     final uploaded = await _uploadBinaryFile(
       path: '/album-covers',
@@ -236,22 +255,30 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     );
     final authorIds = await _resolveAuthorIds(track.authors);
 
-    final response = await _authenticatedHttpClient.post(
-      '/tracks',
-      body: {
-        'name': track.name,
-        'authorIds': authorIds,
-        'albumId': track.albumId,
-        'albumOrder': track.albumOrder,
-        'audioFilePath': uploadedSong.name,
-        'additionalInfo': _serializeTrackInfos(track.additionalInfo),
-      },
-    );
-    _throwIfUnexpectedStatus(
-      response,
-      path: '/tracks',
-      expectedStatusCodes: {201},
-    );
+    try {
+      final response = await _authenticatedHttpClient.post(
+        '/tracks',
+        body: {
+          'name': track.name,
+          'authorIds': authorIds,
+          'albumId': track.albumId,
+          'albumOrder': track.albumOrder,
+          'audioFilePath': uploadedSong.name,
+          'additionalInfo': _serializeTrackInfos(track.additionalInfo),
+        },
+      );
+      _throwIfUnexpectedStatus(
+        response,
+        path: '/tracks',
+        expectedStatusCodes: {201},
+      );
+    } catch (_) {
+      await _deleteSongFileIfPossible(
+        uploadedSong.name,
+        ignoreReferencedOrMissing: true,
+      );
+      rethrow;
+    }
   }
 
   @override
@@ -275,6 +302,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       throw const AppError('Album order is required for update');
     }
 
+    final existingTrack = await getTrack(id);
+    final previousSongReference = _songReferenceFromFile(existingTrack.file);
     final uploadedSong = await _uploadBinaryFile(
       path: '/songs',
       file: track.file,
@@ -282,31 +311,54 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     );
     final authorIds = await _resolveAuthorIds(track.authors);
 
-    final response = await _authenticatedHttpClient.put(
-      '/tracks/$id',
-      body: {
-        'name': track.name,
-        'authorIds': authorIds,
-        'albumId': track.albumId,
-        'albumOrder': albumOrder,
-        'audioFilePath': uploadedSong.name,
-        'additionalInfo': _serializeTrackInfos(track.additionalInfo),
-      },
-    );
-    _throwIfUnexpectedStatus(response, path: '/tracks/$id');
-    return _parseTrack(
-      _decodeJsonMap(response.response, path: '/tracks/$id'),
-      await _getAuthorsById(),
-    );
+    try {
+      final response = await _authenticatedHttpClient.put(
+        '/tracks/$id',
+        body: {
+          'name': track.name,
+          'authorIds': authorIds,
+          'albumId': track.albumId,
+          'albumOrder': albumOrder,
+          'audioFilePath': uploadedSong.name,
+          'additionalInfo': _serializeTrackInfos(track.additionalInfo),
+        },
+      );
+      _throwIfUnexpectedStatus(response, path: '/tracks/$id');
+
+      if (_songReferencesDiffer(previousSongReference, uploadedSong.name)) {
+        await _deleteSongFileIfPossible(
+          previousSongReference,
+          ignoreReferencedOrMissing: true,
+        );
+      }
+
+      return _parseTrack(
+        _decodeJsonMap(response.response, path: '/tracks/$id'),
+        await _getAuthorsById(),
+      );
+    } catch (_) {
+      if (_songReferencesDiffer(previousSongReference, uploadedSong.name)) {
+        await _deleteSongFileIfPossible(
+          uploadedSong.name,
+          ignoreReferencedOrMissing: true,
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
   Future<void> deleteTrack(int id) async {
+    final existingTrack = await getTrack(id);
     final response = await _authenticatedHttpClient.delete('/tracks/$id');
     _throwIfUnexpectedStatus(
       response,
       path: '/tracks/$id',
       expectedStatusCodes: {204},
+    );
+    await _deleteSongFileIfPossible(
+      _songReferenceFromFile(existingTrack.file),
+      ignoreReferencedOrMissing: true,
     );
   }
 
@@ -357,11 +409,9 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       albumId: (json['albumId'] as num?)?.toInt() ?? 0,
       additionalInfo: _parseTrackInfos(json['additionalInfo']),
       file: StorageFile(
-        name: audioFilePath,
+        name: _songFileName(audioFilePath),
         storagePath: audioFilePath,
-        downloadUrl: _baseUri
-            .resolve('/songs/${Uri.encodeComponent(audioFilePath)}')
-            .toString(),
+        downloadUrl: _songDownloadUrl(audioFilePath),
       ),
     );
   }
@@ -448,6 +498,88 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           )
           .toString(),
     );
+  }
+
+  Future<void> _deleteSongFileIfPossible(
+    String? songReference, {
+    required bool ignoreReferencedOrMissing,
+  }) async {
+    final songName = _songFileName(songReference);
+    if (songName.isEmpty) {
+      return;
+    }
+
+    final path = '/songs/${Uri.encodeComponent(songName)}';
+    try {
+      final response = await _authenticatedHttpClient.delete(path);
+      _throwIfUnexpectedStatus(
+        response,
+        path: path,
+        expectedStatusCodes: {204},
+      );
+    } on HttpAppError catch (error) {
+      if (ignoreReferencedOrMissing &&
+          (error.statusCode == 404 || error.statusCode == 409)) {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  String _songReferenceFromFile(Object file) {
+    if (file is StorageFile) {
+      return file.storagePath;
+    }
+    return '';
+  }
+
+  bool _songReferencesDiffer(String? first, String? second) {
+    return _songFileName(first) != _songFileName(second);
+  }
+
+  String _songDownloadUrl(String songReference) {
+    final trimmed = songReference.trim();
+    if (trimmed.isEmpty) {
+      return _baseUri.resolve('/songs/').toString();
+    }
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.hasScheme) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('/songs/')) {
+      return _baseUri.resolve(trimmed).toString();
+    }
+    return _baseUri
+        .resolve('/songs/${Uri.encodeComponent(trimmed)}')
+        .toString();
+  }
+
+  String _songFileName(String? songReference) {
+    final trimmed = songReference?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.hasScheme) {
+      if (uri.pathSegments.isEmpty) {
+        return trimmed;
+      }
+      return _decodeUriComponentIfPossible(uri.pathSegments.last);
+    }
+    if (trimmed.startsWith('/songs/')) {
+      final withoutPrefix = trimmed.substring('/songs/'.length);
+      return _decodeUriComponentIfPossible(withoutPrefix);
+    }
+    return _decodeUriComponentIfPossible(trimmed);
+  }
+
+  String _decodeUriComponentIfPossible(String value) {
+    try {
+      return Uri.decodeComponent(value);
+    } on ArgumentError {
+      return value;
+    }
   }
 
   Future<List<int>> _resolveAuthorIds(List<Author> authors) async {
@@ -538,6 +670,60 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           .whereType<String>()
           .toList(),
     );
+  }
+
+  MediaFileInfo _parseMediaFileInfo(Map<String, dynamic> json) {
+    final path = (json['path'] as String?) ?? '';
+    final url = (json['url'] as String?) ?? '';
+    return MediaFileInfo(
+      name: (json['name'] as String?) ?? '',
+      sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
+      lastModified:
+          DateTime.tryParse((json['lastModified'] as String?) ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      path: path,
+      url: _resolveMediaUrl(url: url, fallbackPath: path),
+    );
+  }
+
+  String _resolveMediaUrl({required String url, required String fallbackPath}) {
+    final trimmedUrl = url.trim();
+    if (trimmedUrl.isNotEmpty) {
+      final absoluteUri = Uri.tryParse(trimmedUrl);
+      if (absoluteUri != null && absoluteUri.hasScheme) {
+        return absoluteUri.toString();
+      }
+    }
+
+    final candidatePath = trimmedUrl.isNotEmpty
+        ? trimmedUrl
+        : fallbackPath.trim();
+    if (candidatePath.isEmpty) {
+      return '';
+    }
+
+    final normalizedPath = _normalizeRelativeMediaPath(candidatePath);
+    return _baseUri.resolve(normalizedPath).toString();
+  }
+
+  String _normalizeRelativeMediaPath(String path) {
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      return '/';
+    }
+
+    final segments = trimmed
+        .split('/')
+        .where((segment) => segment.isNotEmpty)
+        .map(_encodePathSegmentPreservingEscapes)
+        .toList();
+
+    return '/${segments.join('/')}';
+  }
+
+  String _encodePathSegmentPreservingEscapes(String segment) {
+    final decoded = _decodeUriComponentIfPossible(segment);
+    return Uri.encodeComponent(decoded);
   }
 
   String _withQueryParameters(

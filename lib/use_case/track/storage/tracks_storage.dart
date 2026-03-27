@@ -1,5 +1,6 @@
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list.dart';
 
@@ -37,6 +38,10 @@ abstract class TracksStorage {
   Future<List<Track>> getAlbumTracks(int albumId);
 
   Future<void> deleteAlbum(int id);
+
+  Future<List<MediaFileInfo>> getUnusedSongs();
+
+  Future<void> deleteSongFile(String songReference);
 
   Future<String> uploadAlbumCover(Object file);
 

@@ -1,8 +1,7 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 sealed class TrackListEvent extends Equatable {
   const TrackListEvent();
@@ -102,7 +101,8 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
             isLoading: false,
           ),
         );
-      } catch (error) {
+      } catch (error, stackTrace) {
+        print('$error $stackTrace');
         emit(
           state.copyWith(
             isLoading: false,

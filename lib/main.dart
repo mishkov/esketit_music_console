@@ -12,6 +12,7 @@ import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
 import 'package:esketit_music_console/ui/settings/settings_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
 import 'package:esketit_music_console/ui/track/edit_track_screen.dart';
+import 'package:esketit_music_console/ui/utilities/utilities_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
@@ -131,7 +132,7 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-enum _MainDestination { tracks, albums, authors, settings }
+enum _MainDestination { tracks, albums, authors, utilities, settings }
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -181,7 +182,9 @@ class _MainShellState extends State<MainShell> {
           icon: const Icon(Icons.album_outlined),
           label: const Text('Create album'),
         ),
-        _MainDestination.authors || _MainDestination.settings => null,
+        _MainDestination.authors ||
+        _MainDestination.utilities ||
+        _MainDestination.settings => null,
       },
       body: Row(
         children: [
@@ -210,6 +213,11 @@ class _MainShellState extends State<MainShell> {
                 label: Text('Authors'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.build_outlined),
+                selectedIcon: Icon(Icons.build),
+                label: Text('Utilities'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.settings_outlined),
                 selectedIcon: Icon(Icons.settings),
                 label: Text('Settings'),
@@ -229,6 +237,9 @@ class _MainShellState extends State<MainShell> {
                 ),
                 _MainDestination.authors => const AuthorsListScreen(
                   key: ValueKey('authors'),
+                ),
+                _MainDestination.utilities => const UtilitiesScreen(
+                  key: ValueKey('utilities'),
                 ),
                 _MainDestination.settings => const SettingsScreen(
                   key: ValueKey('settings'),
