@@ -2,16 +2,23 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 class Mp3Metadata {
-  const Mp3Metadata({this.title, this.album, this.authors = const []});
+  const Mp3Metadata({
+    this.title,
+    this.album,
+    this.authors = const [],
+    this.releaseDate,
+  });
 
   final String? title;
   final String? album;
   final List<String> authors;
+  final DateTime? releaseDate;
 
   bool get hasData =>
       (title != null && title!.trim().isNotEmpty) ||
       (album != null && album!.trim().isNotEmpty) ||
-      authors.isNotEmpty;
+      authors.isNotEmpty ||
+      releaseDate != null;
 }
 
 Mp3Metadata parseMp3Metadata(Uint8List bytes) {
@@ -46,6 +53,7 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
   String? title;
   String? album;
   List<String> authors = const [];
+  DateTime? releaseDate;
 
   while (offset < tagEnd && offset < bytes.length) {
     if (majorVersion == 2) {
@@ -67,6 +75,8 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
         album = _decodeTextFrame(frameData);
       } else if (frameId == 'TP1') {
         authors = _splitAuthors(_decodeTextFrame(frameData));
+      } else if (frameId == 'TYE') {
+        releaseDate ??= _parseReleaseDate(_decodeTextFrame(frameData));
       }
       offset += frameSize;
       continue;
@@ -92,6 +102,8 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
       album = _decodeTextFrame(frameData);
     } else if (frameId == 'TPE1') {
       authors = _splitAuthors(_decodeTextFrame(frameData));
+    } else if (frameId == 'TDRC' || frameId == 'TDOR' || frameId == 'TYER') {
+      releaseDate ??= _parseReleaseDate(_decodeTextFrame(frameData));
     }
     offset += frameSize;
   }
@@ -100,6 +112,7 @@ Mp3Metadata _parseId3v2(Uint8List bytes) {
     title: _normalize(title),
     album: _normalize(album),
     authors: authors,
+    releaseDate: releaseDate,
   );
 }
 
@@ -111,11 +124,13 @@ Mp3Metadata _parseId3v1(Uint8List bytes) {
   final title = _latin1(bytes.sublist(bytes.length - 125, bytes.length - 95));
   final artist = _latin1(bytes.sublist(bytes.length - 95, bytes.length - 65));
   final album = _latin1(bytes.sublist(bytes.length - 65, bytes.length - 35));
+  final year = _latin1(bytes.sublist(bytes.length - 35, bytes.length - 31));
 
   return Mp3Metadata(
     title: _normalize(title),
     album: _normalize(album),
     authors: _splitAuthors(artist),
+    releaseDate: _parseReleaseDate(year),
   );
 }
 
@@ -218,4 +233,44 @@ List<String> _splitAuthors(String? raw) {
       .map((author) => author.trim())
       .where((author) => author.isNotEmpty)
       .toList();
+}
+
+DateTime? _parseReleaseDate(String? raw) {
+  final normalized = _normalize(raw);
+  if (normalized == null) {
+    return null;
+  }
+
+  final fullDateMatch = RegExp(
+    r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})',
+  ).firstMatch(normalized);
+  if (fullDateMatch != null) {
+    final year = int.tryParse(fullDateMatch.group(1)!);
+    final month = int.tryParse(fullDateMatch.group(2)!);
+    final day = int.tryParse(fullDateMatch.group(3)!);
+    if (year != null && month != null && day != null) {
+      final parsed = DateTime.utc(year, month, day);
+      if (parsed.year == year && parsed.month == month && parsed.day == day) {
+        return parsed;
+      }
+    }
+  }
+
+  final yearMonthMatch = RegExp(
+    r'^(\d{4})[-./](\d{1,2})',
+  ).firstMatch(normalized);
+  if (yearMonthMatch != null) {
+    final year = int.tryParse(yearMonthMatch.group(1)!);
+    final month = int.tryParse(yearMonthMatch.group(2)!);
+    if (year != null && month != null && month >= 1 && month <= 12) {
+      return DateTime.utc(year, month, 1);
+    }
+  }
+
+  final yearMatch = RegExp(r'(\d{4})').firstMatch(normalized);
+  final year = yearMatch == null ? null : int.tryParse(yearMatch.group(1)!);
+  if (year == null) {
+    return null;
+  }
+  return DateTime.utc(year, 1, 1);
 }

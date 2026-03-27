@@ -118,11 +118,11 @@ class _AlbumsListScreenState extends State<AlbumsListScreen> {
   }
 
   Future<void> _openAlbum(int albumId) async {
-    final didUpdate = await Navigator.of(context).push<bool>(
+    final updatedAlbum = await Navigator.of(context).push<Album>(
       MaterialPageRoute(builder: (_) => EditAlbumScreen(albumId: albumId)),
     );
 
-    if (didUpdate == true && mounted) {
+    if (updatedAlbum != null && mounted) {
       await _loadAlbums();
     }
   }

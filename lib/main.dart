@@ -263,11 +263,11 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _openCreateAlbumScreen() async {
-    final didSave = await Navigator.of(
+    final savedAlbum = await Navigator.of(
       context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const EditAlbumScreen()));
+    ).push<Album>(MaterialPageRoute(builder: (_) => const EditAlbumScreen()));
 
-    if (didSave == true && mounted) {
+    if (savedAlbum != null && mounted) {
       setState(() {
         _albumsSectionVersion += 1;
         _destination = _MainDestination.albums;

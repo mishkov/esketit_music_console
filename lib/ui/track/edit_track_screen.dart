@@ -304,12 +304,11 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   }
 
   Future<void> _openCreateAlbumScreen() async {
-    final previousAlbumIds = _availableAlbums.map((album) => album.id).toSet();
-    final didSave = await Navigator.of(
+    final savedAlbum = await Navigator.of(
       context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const EditAlbumScreen()));
+    ).push<Album>(MaterialPageRoute(builder: (_) => const EditAlbumScreen()));
 
-    if (didSave != true || !mounted) {
+    if (savedAlbum?.id == null || !mounted) {
       return;
     }
 
@@ -318,20 +317,9 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       return;
     }
 
-    Album? newAlbum;
-    for (final album in _availableAlbums) {
-      if (album.id != null && !previousAlbumIds.contains(album.id)) {
-        newAlbum = album;
-        break;
-      }
-    }
-    newAlbum ??= _availableAlbums.isEmpty ? null : _availableAlbums.last;
-
-    if (newAlbum?.id != null) {
-      setState(() {
-        _selectedAlbumId = newAlbum!.id;
-      });
-    }
+    setState(() {
+      _selectedAlbumId = savedAlbum!.id;
+    });
   }
 
   Future<void> _reloadAlbums() async {
@@ -517,7 +505,9 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       }
     }
 
-    final album = await context.read<TracksStorage>().getAlbum(selectedAlbum.id!);
+    final album = await context.read<TracksStorage>().getAlbum(
+      selectedAlbum.id!,
+    );
     return album.trackIds.length;
   }
 

@@ -11,9 +11,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class EditAlbumScreen extends StatefulWidget {
-  const EditAlbumScreen({super.key, this.albumId});
+  const EditAlbumScreen({
+    super.key,
+    this.albumId,
+    this.initialTitle,
+    this.initialReleaseDate,
+  });
 
   final int? albumId;
+  final String? initialTitle;
+  final DateTime? initialReleaseDate;
 
   bool get isCreating => albumId == null;
 
@@ -289,7 +296,8 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     if (widget.albumId == null) {
       setState(() {
         _isLoading = false;
-        _releaseDate = DateTime.now().toUtc();
+        _titleController.text = widget.initialTitle?.trim() ?? '';
+        _releaseDate = widget.initialReleaseDate ?? DateTime.now().toUtc();
       });
       return;
     }
@@ -489,7 +497,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
         _album = savedAlbum;
         _isSaving = false;
       });
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(savedAlbum);
     } catch (error) {
       if (!mounted) {
         return;
@@ -543,7 +551,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       if (!mounted) {
         return;
       }
-      Navigator.of(context).pop(true);
+      Navigator.of(context).pop(_album);
     } catch (error) {
       if (!mounted) {
         return;
