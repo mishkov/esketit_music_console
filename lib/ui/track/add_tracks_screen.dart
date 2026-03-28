@@ -1631,6 +1631,7 @@ class _TelegramImportTab extends StatefulWidget {
 
 class _TelegramImportTabState extends State<_TelegramImportTab> {
   final _channelUsernameController = TextEditingController();
+  final _startMessageIdController = TextEditingController();
   final _titleController = TextEditingController();
   final List<TextTrackInfo> _additionalInfos = [];
   final List<Author> _selectedAuthors = [];
@@ -1661,6 +1662,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   @override
   void dispose() {
     _channelUsernameController.dispose();
+    _startMessageIdController.dispose();
     _titleController.dispose();
     super.dispose();
   }
@@ -1741,6 +1743,19 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
               decoration: const InputDecoration(
                 labelText: 'Channel username',
                 hintText: 'channel_name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _startMessageIdController,
+              enabled: !_isStartingSession,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Start from message ID',
+                helperText:
+                    'Optional. Inclusive: the import starts from this Telegram message ID.',
+                hintText: '12345',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -2203,10 +2218,18 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     final channelUsername = _normalizeChannelUsername(
       _channelUsernameController.text,
     );
+    final startMessageIdResult = _parseStartMessageId(
+      _startMessageIdController.text,
+    );
     if (channelUsername.isEmpty) {
       _showMessage('Channel username is required.');
       return;
     }
+    if (startMessageIdResult.errorMessage != null) {
+      _showMessage(startMessageIdResult.errorMessage!);
+      return;
+    }
+    final startMessageId = startMessageIdResult.value;
 
     if (!mounted) {
       return;
@@ -2220,6 +2243,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     try {
       final session = await repository.startSession(
         channelUsername: channelUsername,
+        startMessageId: startMessageId,
       );
 
       if (!mounted) {
@@ -2263,6 +2287,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
           try {
             final session = await repository.startSession(
               channelUsername: channelUsername,
+              startMessageId: startMessageId,
               replaceExisting: true,
             );
             if (!mounted) {
@@ -2860,6 +2885,23 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     return trimmed;
   }
 
+  _StartMessageIdParseResult _parseStartMessageId(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return const _StartMessageIdParseResult();
+    }
+
+    final parsed = int.tryParse(trimmed);
+    if (parsed == null || parsed < 0) {
+      return const _StartMessageIdParseResult(
+        errorMessage:
+            'Start message ID must be an integer greater than or equal to 0.',
+      );
+    }
+
+    return _StartMessageIdParseResult(value: parsed);
+  }
+
   String _errorMessageFrom(Object error) {
     if (error is HttpAppError) {
       return error.message;
@@ -2872,6 +2914,13 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
   }
+}
+
+class _StartMessageIdParseResult {
+  const _StartMessageIdParseResult({this.value, this.errorMessage});
+
+  final int? value;
+  final String? errorMessage;
 }
 
 class _TelegramInfoBanner extends StatelessWidget {

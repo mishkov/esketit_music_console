@@ -95,14 +95,19 @@ class EsketitRestApiTelegramImportRepository
   @override
   Future<TelegramImportSession> startSession({
     required String channelUsername,
+    int? startMessageId,
     bool replaceExisting = false,
   }) async {
+    final body = <String, dynamic>{
+      'channelUsername': channelUsername,
+      'replaceExisting': replaceExisting,
+    };
+    if (startMessageId != null) {
+      body['startMessageId'] = startMessageId;
+    }
     final response = await _httpClient.post(
       '/telegram/import-sessions',
-      body: {
-        'channelUsername': channelUsername,
-        'replaceExisting': replaceExisting,
-      },
+      body: body,
     );
     _throwIfUnexpectedStatus(
       response,

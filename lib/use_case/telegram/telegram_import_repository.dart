@@ -19,6 +19,7 @@ abstract class TelegramImportRepository {
 
   Future<TelegramImportSession> startSession({
     required String channelUsername,
+    int? startMessageId,
     bool replaceExisting = false,
   });
 
