@@ -1687,6 +1687,10 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
                 if (_telegramStatus == null && !_isLoadingState)
                   _TelegramInfoBanner(
                     message: 'Failed to load Telegram integration status.',
+                    actionLabel: _isCancelling
+                        ? 'Stopping...'
+                        : 'Stop current import session',
+                    onAction: _isCancelling ? null : _cancelSession,
                   )
                 else if (status != null && !status.configured)
                   _TelegramInfoBanner(
