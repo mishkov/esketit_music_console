@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
@@ -44,6 +45,13 @@ abstract class TracksStorage {
   Future<void> deleteSongFile(String songReference);
 
   Future<String> uploadAlbumCover(Object file);
+
+  Future<List<AlbumCoverSuggestion>> searchAlbumCoverSuggestions(String query);
+
+  Future<String> importAlbumCoverFromUrl({
+    required String imageUrl,
+    String? suggestedFileName,
+  });
 
   Future<List<Author>> getAuthors();
 

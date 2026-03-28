@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/errors/album_cover_suggestions_unavailable_error.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
@@ -181,6 +183,70 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       fallbackGetPathPrefix: '/album-covers/',
     );
     return uploaded.name;
+  }
+
+  @override
+  Future<List<AlbumCoverSuggestion>> searchAlbumCoverSuggestions(
+    String query,
+  ) async {
+    final trimmedQuery = query.trim();
+    if (trimmedQuery.isEmpty) {
+      return const [];
+    }
+
+    final response = await _authenticatedHttpClient.get(
+      _withQueryParameters('/album-covers/suggestions', {
+        'query': trimmedQuery,
+        'limit': '20',
+      }),
+    );
+
+    if (response.statusCode == 404 || response.statusCode == 501) {
+      throw const AlbumCoverSuggestionsUnavailableError();
+    }
+
+    _throwIfUnexpectedStatus(response, path: '/album-covers/suggestions');
+
+    final body = _decodeJsonMap(
+      response.response,
+      path: '/album-covers/suggestions',
+    );
+    final items = (body['items'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>();
+    return items.map(_parseAlbumCoverSuggestion).toList();
+  }
+
+  @override
+  Future<String> importAlbumCoverFromUrl({
+    required String imageUrl,
+    String? suggestedFileName,
+  }) async {
+    final response = await _authenticatedHttpClient.post(
+      '/album-covers/import',
+      body: {
+        'imageUrl': imageUrl,
+        if (suggestedFileName != null && suggestedFileName.trim().isNotEmpty)
+          'suggestedFileName': suggestedFileName.trim(),
+      },
+    );
+
+    if (response.statusCode == 404 || response.statusCode == 501) {
+      throw const AlbumCoverSuggestionsUnavailableError(
+        'Album cover import is not available yet. Add the backend import endpoint first.',
+      );
+    }
+
+    _throwIfUnexpectedStatus(
+      response,
+      path: '/album-covers/import',
+      expectedStatusCodes: {201},
+    );
+
+    final body = _decodeJsonMap(
+      response.response,
+      path: '/album-covers/import',
+    );
+    return (body['name'] as String?) ?? '';
   }
 
   @override
@@ -387,6 +453,25 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           .map((id) => id.toInt())
           .toList(),
       additionalInfo: _parseTrackInfos(json['additionalInfo']),
+    );
+  }
+
+  AlbumCoverSuggestion _parseAlbumCoverSuggestion(Map<String, dynamic> json) {
+    final thumbnailUrl = (json['thumbnailUrl'] as String?)?.trim() ?? '';
+    final imageUrl = (json['imageUrl'] as String?)?.trim() ?? '';
+    final width = (json['width'] as num?)?.toInt() ?? 0;
+    final height = (json['height'] as num?)?.toInt() ?? 0;
+
+    if (thumbnailUrl.isEmpty || imageUrl.isEmpty || width <= 0 || height <= 0) {
+      throw const AppError('Invalid album cover suggestion payload.');
+    }
+
+    return AlbumCoverSuggestion(
+      thumbnailUrl: thumbnailUrl,
+      imageUrl: imageUrl,
+      width: width,
+      height: height,
+      sourcePageUrl: (json['sourcePageUrl'] as String?)?.trim(),
     );
   }
 

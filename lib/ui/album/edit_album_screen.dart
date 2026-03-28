@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/album.dart';
+import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
@@ -35,11 +38,18 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isUploadingCover = false;
+  bool _isLoadingCoverSuggestions = false;
+  bool _isImportingSuggestedCover = false;
   bool _isPublished = true;
   String? _errorMessage;
+  String? _coverSuggestionsErrorMessage;
   DateTime _releaseDate = DateTime.now().toUtc();
   Album? _album;
   List<Track> _tracks = const [];
+  List<AlbumCoverSuggestion> _coverSuggestions = const [];
+  String _coverSuggestionsQuery = '';
+  int _coverSuggestionsRequestId = 0;
+  String? _selectedSuggestionImageUrl;
 
   @override
   void initState() {
@@ -69,7 +79,11 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_isLoading || _isSaving || _isUploadingCover)
+                  if (_isLoading ||
+                      _isSaving ||
+                      _isUploadingCover ||
+                      _isLoadingCoverSuggestions ||
+                      _isImportingSuggestedCover)
                     const LinearProgressIndicator(),
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 12),
@@ -84,6 +98,9 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                   TextField(
                     controller: _titleController,
                     enabled: !_isLoading && !_isSaving,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) =>
+                        _triggerImmediateCoverSuggestionsSearch(),
                     decoration: const InputDecoration(
                       labelText: 'Title',
                       border: OutlineInputBorder(),
@@ -92,7 +109,11 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _coverImagePathController,
-                    enabled: !_isLoading && !_isSaving && !_isUploadingCover,
+                    enabled:
+                        !_isLoading &&
+                        !_isSaving &&
+                        !_isUploadingCover &&
+                        !_isImportingSuggestedCover,
                     decoration: const InputDecoration(
                       labelText: 'Cover image path',
                       border: OutlineInputBorder(),
@@ -109,6 +130,52 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                       label: const Text('Upload cover'),
                     ),
                   ),
+                  if (widget.isCreating) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Image suggester',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'When you type an album title, the app searches for "$_coverSearchPreview". Pick any result to import it to your backend.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    if (_coverSuggestionsErrorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text(
+                          _coverSuggestionsErrorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    if (_coverSuggestionsQuery.isEmpty &&
+                        !_isLoadingCoverSuggestions)
+                      const _EmptyStateCard(
+                        message:
+                            'Enter an album title to load cover suggestions.',
+                      )
+                    else if (_coverSuggestions.isEmpty &&
+                        !_isLoadingCoverSuggestions)
+                      _EmptyStateCard(
+                        message:
+                            'No image suggestions found for "$_coverSuggestionsQuery".',
+                      )
+                    else
+                      _CoverSuggestionGrid(
+                        suggestions: _coverSuggestions,
+                        selectedImageUrl: _selectedSuggestionImageUrl,
+                        isDisabled:
+                            _isLoading ||
+                            _isSaving ||
+                            _isUploadingCover ||
+                            _isImportingSuggestedCover,
+                        onSelect: _importSuggestedCover,
+                      ),
+                  ],
                   const SizedBox(height: 16),
                   _SummaryCard(
                     title: 'Release date',
@@ -392,6 +459,95 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     }
   }
 
+  void _triggerImmediateCoverSuggestionsSearch() {
+    if (!widget.isCreating) {
+      return;
+    }
+
+    _refreshCoverSuggestions();
+  }
+
+  Future<void> _refreshCoverSuggestions() async {
+    final title = _titleController.text.trim();
+    final query = title.isEmpty ? '' : '$title cover image';
+    final requestId = ++_coverSuggestionsRequestId;
+
+    if (query.isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _coverSuggestionsQuery = '';
+        _coverSuggestions = const [];
+        _coverSuggestionsErrorMessage = null;
+        _isLoadingCoverSuggestions = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _coverSuggestionsQuery = query;
+      _coverSuggestionsErrorMessage = null;
+      _isLoadingCoverSuggestions = true;
+    });
+
+    try {
+      final suggestions = await context
+          .read<TracksStorage>()
+          .searchAlbumCoverSuggestions(query);
+      if (!mounted || requestId != _coverSuggestionsRequestId) {
+        return;
+      }
+      setState(() {
+        _coverSuggestions = suggestions.take(20).toList();
+        _isLoadingCoverSuggestions = false;
+      });
+    } catch (error) {
+      if (!mounted || requestId != _coverSuggestionsRequestId) {
+        return;
+      }
+      setState(() {
+        _coverSuggestions = const [];
+        _isLoadingCoverSuggestions = false;
+        _coverSuggestionsErrorMessage = _describeError(error);
+      });
+    }
+  }
+
+  Future<void> _importSuggestedCover(AlbumCoverSuggestion suggestion) async {
+    setState(() {
+      _isImportingSuggestedCover = true;
+      _errorMessage = null;
+      _selectedSuggestionImageUrl = suggestion.imageUrl;
+    });
+
+    try {
+      final coverPath = await context
+          .read<TracksStorage>()
+          .importAlbumCoverFromUrl(
+            imageUrl: suggestion.imageUrl,
+            suggestedFileName: _buildSuggestedCoverFileName(
+              suggestion.imageUrl,
+            ),
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _coverImagePathController.text = coverPath;
+        _isImportingSuggestedCover = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isImportingSuggestedCover = false;
+        _errorMessage = _describeError(error);
+      });
+    }
+  }
+
   Future<void> _showAddTextInfoDialog() async {
     final titleController = TextEditingController();
     final textController = TextEditingController();
@@ -619,6 +775,32 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     final day = local.day.toString().padLeft(2, '0');
     return '${local.year}-$month-$day';
   }
+
+  String get _coverSearchPreview {
+    final title = _titleController.text.trim();
+    return title.isEmpty ? r'$ALBUM_NAME cover image' : '$title cover image';
+  }
+
+  String _buildSuggestedCoverFileName(String imageUrl) {
+    final title = _titleController.text.trim();
+    final normalizedTitle = title.isEmpty
+        ? 'album-cover'
+        : title
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+              .replaceAll(RegExp(r'-+'), '-')
+              .replaceAll(RegExp(r'^-|-$'), '');
+    final imageUri = Uri.tryParse(imageUrl);
+    final lastSegment = imageUri?.pathSegments.isNotEmpty == true
+        ? imageUri!.pathSegments.last
+        : '';
+    final extensionMatch = RegExp(
+      r'\.(jpg|jpeg|png|webp|gif)$',
+      caseSensitive: false,
+    ).firstMatch(lastSegment);
+    final extension = extensionMatch?.group(0)?.toLowerCase() ?? '.jpg';
+    return '$normalizedTitle$extension';
+  }
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -677,6 +859,127 @@ class _EmptyStateCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(message),
+    );
+  }
+}
+
+class _CoverSuggestionGrid extends StatelessWidget {
+  const _CoverSuggestionGrid({
+    required this.suggestions,
+    required this.selectedImageUrl,
+    required this.isDisabled,
+    required this.onSelect,
+  });
+
+  final List<AlbumCoverSuggestion> suggestions;
+  final String? selectedImageUrl;
+  final bool isDisabled;
+  final ValueChanged<AlbumCoverSuggestion> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final columnCount = suggestions.length <= 5 ? suggestions.length : 5;
+    if (columnCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 12.0;
+        final totalSpacing = spacing * (columnCount - 1);
+        final tileWidth = (constraints.maxWidth - totalSpacing) / columnCount;
+        final rowCount = (suggestions.length / columnCount).ceil();
+        final gridHeight = (tileWidth * rowCount) + (spacing * (rowCount - 1));
+
+        return SizedBox(
+          height: gridHeight,
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: suggestions.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columnCount,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: spacing,
+              childAspectRatio: 1,
+            ),
+            itemBuilder: (context, index) {
+              final suggestion = suggestions[index];
+              final isSelected = suggestion.imageUrl == selectedImageUrl;
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                margin: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  side: BorderSide(
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.outlineVariant,
+                    width: isSelected ? 2 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: InkWell(
+                  onTap: isDisabled ? null : () => onSelect(suggestion),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        suggestion.imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Image.network(
+                            suggestion.thumbnailUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return ColoredBox(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                child: const Center(
+                                  child: Icon(Icons.broken_image_outlined),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) {
+                            return child;
+                          }
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        },
+                      ),
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              '${suggestion.width}x${suggestion.height}',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
