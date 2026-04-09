@@ -5,14 +5,14 @@ import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
+import 'package:esketit_music_console/ui/album/album_picker.dart';
+import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
-const _createAlbumOptionValue = -1;
 
 class EditTrackScreen extends StatefulWidget {
   const EditTrackScreen({super.key, required this.trackId});
@@ -84,30 +84,17 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  DropdownButtonFormField<int>(
-                    key: ValueKey(
-                      'album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
-                    ),
-                    initialValue: _selectedAlbumId,
-                    items: [
-                      ..._availableAlbums.map(
-                        (album) => DropdownMenuItem<int>(
-                          value: album.id,
-                          child: Text(album.title),
-                        ),
-                      ),
-                      const DropdownMenuItem<int>(
-                        value: _createAlbumOptionValue,
-                        child: Text('Create new album...'),
-                      ),
-                    ],
-                    onChanged: _isLoading || _isSaving || track == null
-                        ? null
-                        : _onAlbumChanged,
-                    decoration: const InputDecoration(
-                      labelText: 'Album',
-                      border: OutlineInputBorder(),
-                    ),
+                  AlbumPickerField(
+                    albums: _availableAlbums,
+                    selectedAlbum: _selectedAlbum,
+                    isLoading: _isLoading,
+                    enabled: !_isLoading && !_isSaving && track != null,
+                    onSelected: (album) {
+                      setState(() {
+                        _selectedAlbumId = album.id;
+                      });
+                    },
+                    onCreateNew: _openCreateAlbumScreen,
                   ),
                   const SizedBox(height: 12),
                   _SelectionSummaryCard(
@@ -226,7 +213,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       final storage = context.read<TracksStorage>();
       final track = await storage.getTrack(widget.trackId);
       final authorsFuture = storage.getAuthors();
-      final albumsFuture = storage.getAlbums();
+      final albumsFuture = loadAllAlbums(storage);
       final currentAlbumFuture = storage.getAlbum(track.albumId);
 
       final authors = await authorsFuture;
@@ -292,17 +279,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     });
   }
 
-  Future<void> _onAlbumChanged(int? value) async {
-    if (value == _createAlbumOptionValue) {
-      await _openCreateAlbumScreen();
-      return;
-    }
-
-    setState(() {
-      _selectedAlbumId = value;
-    });
-  }
-
   Future<void> _openCreateAlbumScreen() async {
     final savedAlbum = await Navigator.of(
       context,
@@ -323,7 +299,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   }
 
   Future<void> _reloadAlbums() async {
-    final albums = await context.read<TracksStorage>().getAlbums();
+    final albums = await loadAllAlbums(context.read<TracksStorage>());
     albums.sort(
       (left, right) =>
           left.title.toLowerCase().compareTo(right.title.toLowerCase()),

@@ -14,6 +14,7 @@ import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_response.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 
@@ -70,6 +71,24 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     String? query,
     bool? isPublished,
   }) async {
+    final albumsList = await getAlbumsList(
+      page: page,
+      pageSize: pageSize,
+      authorId: authorId,
+      query: query,
+      isPublished: isPublished,
+    );
+    return albumsList.albums;
+  }
+
+  @override
+  Future<StorageAlbumsList> getAlbumsList({
+    int page = 1,
+    int pageSize = 100,
+    int? authorId,
+    String? query,
+    bool? isPublished,
+  }) async {
     final response = await _authenticatedHttpClient.get(
       _withQueryParameters('/albums', {
         'page': '$page',
@@ -86,7 +105,16 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     final items = (body['items'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>();
 
-    return items.map((album) => _parseAlbum(album, authorsById)).toList();
+    final albums = items
+        .map((album) => _parseAlbum(album, authorsById))
+        .toList();
+    return StorageAlbumsList(
+      albums: albums,
+      page: (body['page'] as num?)?.toInt() ?? page,
+      pageSize: (body['pageSize'] as num?)?.toInt() ?? pageSize,
+      totalItems: (body['totalItems'] as num?)?.toInt() ?? albums.length,
+      totalPages: (body['totalPages'] as num?)?.toInt() ?? 0,
+    );
   }
 
   @override

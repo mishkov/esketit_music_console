@@ -9,6 +9,8 @@ import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
+import 'package:esketit_music_console/ui/album/album_picker.dart';
+import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/browser_file_download.dart';
 import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
@@ -18,8 +20,6 @@ import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
-const _createAlbumOptionValue = -1;
 
 class AddTracksScreen extends StatefulWidget {
   const AddTracksScreen({super.key});
@@ -125,30 +125,17 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  key: ValueKey(
-                    'album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
-                  ),
-                  initialValue: _selectedAlbumId,
-                  items: [
-                    ..._availableAlbums.map(
-                      (album) => DropdownMenuItem<int>(
-                        value: album.id,
-                        child: Text(album.title),
-                      ),
-                    ),
-                    const DropdownMenuItem<int>(
-                      value: _createAlbumOptionValue,
-                      child: Text('Create new album...'),
-                    ),
-                  ],
-                  onChanged: _isSaving || _isLoadingAlbums
-                      ? null
-                      : _onAlbumChanged,
-                  decoration: const InputDecoration(
-                    labelText: 'Album',
-                    border: OutlineInputBorder(),
-                  ),
+                AlbumPickerField(
+                  albums: _availableAlbums,
+                  selectedAlbum: _selectedAlbum,
+                  isLoading: _isLoadingAlbums,
+                  enabled: !_isSaving,
+                  onSelected: (album) {
+                    setState(() {
+                      _selectedAlbumId = album.id;
+                    });
+                  },
+                  onCreateNew: _openCreateAlbumScreen,
                 ),
                 const SizedBox(height: 12),
                 _SelectionSummaryCard(
@@ -267,7 +254,7 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
 
   Future<void> _loadAlbums() async {
     try {
-      final albums = await context.read<TracksStorage>().getAlbums();
+      final albums = await loadAllAlbums(context.read<TracksStorage>());
       if (!mounted) {
         return;
       }
@@ -293,17 +280,6 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to load albums: $error')));
     }
-  }
-
-  Future<void> _onAlbumChanged(int? value) async {
-    if (value == _createAlbumOptionValue) {
-      await _openCreateAlbumScreen();
-      return;
-    }
-
-    setState(() {
-      _selectedAlbumId = value;
-    });
   }
 
   Future<void> _openCreateAlbumScreen({
@@ -370,41 +346,33 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       return;
     }
 
-    for (final album in _availableAlbums) {
-      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
-        setState(() {
-          _selectedAlbumId = album.id;
-        });
-        return;
-      }
+    final matchingAlbum = findBestMatchingAlbum(_availableAlbums, albumTitle);
+    if (matchingAlbum?.id != null) {
+      setState(() {
+        _selectedAlbumId = matchingAlbum!.id;
+      });
+      return;
     }
 
-    final result = await showDialog<_AlbumChoiceDialogResult>(
-      context: context,
-      builder: (context) {
-        return _AlbumChoiceDialog(
-          metadataAlbumTitle: albumTitle,
-          availableAlbums: _availableAlbums,
-        );
-      },
+    final result = await showAlbumPickerDialog(
+      context,
+      availableAlbums: _availableAlbums,
+      selectedAlbumId: _selectedAlbumId,
+      metadataAlbumTitle: albumTitle,
+      onCreateNew: () => _openCreateAlbumScreen(
+        initialTitle: albumTitle,
+        initialReleaseDate: metadataReleaseDate,
+      ),
     );
 
     if (!mounted || result == null) {
       return;
     }
 
-    if (result.albumId != null) {
+    if (result case AlbumPickerDialogSelection(album: final album)) {
       setState(() {
-        _selectedAlbumId = result.albumId;
+        _selectedAlbumId = album.id;
       });
-      return;
-    }
-
-    if (result.shouldCreateNew) {
-      await _openCreateAlbumScreen(
-        initialTitle: albumTitle,
-        initialReleaseDate: metadataReleaseDate,
-      );
     }
   }
 
@@ -857,34 +825,17 @@ class _ZipImportTabState extends State<_ZipImportTab> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      DropdownButtonFormField<int>(
-                        key: ValueKey(
-                          'zip-album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
-                        ),
-                        initialValue: _selectedAlbumId,
-                        items: [
-                          ..._availableAlbums.map(
-                            (album) => DropdownMenuItem<int>(
-                              value: album.id,
-                              child: Text(album.title),
-                            ),
-                          ),
-                          const DropdownMenuItem<int>(
-                            value: _createAlbumOptionValue,
-                            child: Text('Create new album...'),
-                          ),
-                        ],
-                        onChanged:
-                            _isSaving ||
-                                _isSkipping ||
-                                _isCancelling ||
-                                _isLoadingAlbums
-                            ? null
-                            : _onAlbumChanged,
-                        decoration: const InputDecoration(
-                          labelText: 'Album',
-                          border: OutlineInputBorder(),
-                        ),
+                      AlbumPickerField(
+                        albums: _availableAlbums,
+                        selectedAlbum: _selectedAlbum,
+                        isLoading: _isLoadingAlbums,
+                        enabled: !_isSaving && !_isSkipping && !_isCancelling,
+                        onSelected: (album) {
+                          setState(() {
+                            _selectedAlbumId = album.id;
+                          });
+                        },
+                        onCreateNew: _openCreateAlbumScreen,
                       ),
                       const SizedBox(height: 12),
                       _SelectionSummaryCard(
@@ -1108,7 +1059,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
 
   Future<void> _loadAlbums() async {
     try {
-      final albums = await context.read<TracksStorage>().getAlbums();
+      final albums = await loadAllAlbums(context.read<TracksStorage>());
       if (!mounted) {
         return;
       }
@@ -1233,17 +1184,6 @@ class _ZipImportTabState extends State<_ZipImportTab> {
     await _applyMetadataAuthors(entry.metadata.authors);
   }
 
-  Future<void> _onAlbumChanged(int? value) async {
-    if (value == _createAlbumOptionValue) {
-      await _openCreateAlbumScreen();
-      return;
-    }
-
-    setState(() {
-      _selectedAlbumId = value;
-    });
-  }
-
   Future<void> _openCreateAlbumScreen({
     String? initialTitle,
     DateTime? initialReleaseDate,
@@ -1314,41 +1254,33 @@ class _ZipImportTabState extends State<_ZipImportTab> {
       return;
     }
 
-    for (final album in _availableAlbums) {
-      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
-        setState(() {
-          _selectedAlbumId = album.id;
-        });
-        return;
-      }
+    final matchingAlbum = findBestMatchingAlbum(_availableAlbums, albumTitle);
+    if (matchingAlbum?.id != null) {
+      setState(() {
+        _selectedAlbumId = matchingAlbum!.id;
+      });
+      return;
     }
 
-    final result = await showDialog<_AlbumChoiceDialogResult>(
-      context: context,
-      builder: (context) {
-        return _AlbumChoiceDialog(
-          metadataAlbumTitle: albumTitle,
-          availableAlbums: _availableAlbums,
-        );
-      },
+    final result = await showAlbumPickerDialog(
+      context,
+      availableAlbums: _availableAlbums,
+      selectedAlbumId: _selectedAlbumId,
+      metadataAlbumTitle: albumTitle,
+      onCreateNew: () => _openCreateAlbumScreen(
+        initialTitle: albumTitle,
+        initialReleaseDate: metadataReleaseDate,
+      ),
     );
 
     if (!mounted || result == null) {
       return;
     }
 
-    if (result.albumId != null) {
+    if (result case AlbumPickerDialogSelection(album: final album)) {
       setState(() {
-        _selectedAlbumId = result.albumId;
+        _selectedAlbumId = album.id;
       });
-      return;
-    }
-
-    if (result.shouldCreateNew) {
-      await _openCreateAlbumScreen(
-        initialTitle: albumTitle,
-        initialReleaseDate: metadataReleaseDate,
-      );
     }
   }
 
@@ -1949,31 +1881,17 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
           ),
         ),
         const SizedBox(height: 16),
-        DropdownButtonFormField<int>(
-          key: ValueKey(
-            'telegram-album-${_selectedAlbumId ?? 'none'}-${_availableAlbums.length}',
-          ),
-          initialValue: _selectedAlbumId,
-          items: [
-            ..._availableAlbums.map(
-              (album) => DropdownMenuItem<int>(
-                value: album.id,
-                child: Text(album.title),
-              ),
-            ),
-            const DropdownMenuItem<int>(
-              value: _createAlbumOptionValue,
-              child: Text('Create new album...'),
-            ),
-          ],
-          onChanged:
-              _isSaving || _isSkipping || _isCancelling || _isLoadingAlbums
-              ? null
-              : _onAlbumChanged,
-          decoration: const InputDecoration(
-            labelText: 'Album',
-            border: OutlineInputBorder(),
-          ),
+        AlbumPickerField(
+          albums: _availableAlbums,
+          selectedAlbum: _selectedAlbum,
+          isLoading: _isLoadingAlbums,
+          enabled: !_isSaving && !_isSkipping && !_isCancelling,
+          onSelected: (album) {
+            setState(() {
+              _selectedAlbumId = album.id;
+            });
+          },
+          onCreateNew: _openCreateAlbumScreen,
         ),
         const SizedBox(height: 12),
         _SelectionSummaryCard(
@@ -2154,7 +2072,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
 
   Future<void> _loadAlbums() async {
     try {
-      final albums = await context.read<TracksStorage>().getAlbums();
+      final albums = await loadAllAlbums(context.read<TracksStorage>());
       if (!mounted) {
         return;
       }
@@ -2178,17 +2096,6 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       });
       _showMessage('Failed to load albums: $error');
     }
-  }
-
-  Future<void> _onAlbumChanged(int? value) async {
-    if (value == _createAlbumOptionValue) {
-      await _openCreateAlbumScreen();
-      return;
-    }
-
-    setState(() {
-      _selectedAlbumId = value;
-    });
   }
 
   Future<void> _openCreateAlbumScreen({
@@ -2458,41 +2365,33 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       return;
     }
 
-    for (final album in _availableAlbums) {
-      if (album.title.toLowerCase() == albumTitle.toLowerCase()) {
-        setState(() {
-          _selectedAlbumId = album.id;
-        });
-        return;
-      }
+    final matchingAlbum = findBestMatchingAlbum(_availableAlbums, albumTitle);
+    if (matchingAlbum?.id != null) {
+      setState(() {
+        _selectedAlbumId = matchingAlbum!.id;
+      });
+      return;
     }
 
-    final result = await showDialog<_AlbumChoiceDialogResult>(
-      context: context,
-      builder: (context) {
-        return _AlbumChoiceDialog(
-          metadataAlbumTitle: albumTitle,
-          availableAlbums: _availableAlbums,
-        );
-      },
+    final result = await showAlbumPickerDialog(
+      context,
+      availableAlbums: _availableAlbums,
+      selectedAlbumId: _selectedAlbumId,
+      metadataAlbumTitle: albumTitle,
+      onCreateNew: () => _openCreateAlbumScreen(
+        initialTitle: albumTitle,
+        initialReleaseDate: metadataReleaseDate,
+      ),
     );
 
     if (!mounted || result == null) {
       return;
     }
 
-    if (result.albumId != null) {
+    if (result case AlbumPickerDialogSelection(album: final album)) {
       setState(() {
-        _selectedAlbumId = result.albumId;
+        _selectedAlbumId = album.id;
       });
-      return;
-    }
-
-    if (result.shouldCreateNew) {
-      await _openCreateAlbumScreen(
-        initialTitle: albumTitle,
-        initialReleaseDate: metadataReleaseDate,
-      );
     }
   }
 
@@ -3235,139 +3134,6 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
           right.currentName.toLowerCase(),
         ),
       );
-  }
-}
-
-class _AlbumChoiceDialogResult {
-  const _AlbumChoiceDialogResult.select(this.albumId) : shouldCreateNew = false;
-
-  const _AlbumChoiceDialogResult.createNew()
-    : albumId = null,
-      shouldCreateNew = true;
-
-  final int? albumId;
-  final bool shouldCreateNew;
-}
-
-class _AlbumChoiceDialog extends StatefulWidget {
-  const _AlbumChoiceDialog({
-    required this.metadataAlbumTitle,
-    required this.availableAlbums,
-  });
-
-  final String metadataAlbumTitle;
-  final List<Album> availableAlbums;
-
-  @override
-  State<_AlbumChoiceDialog> createState() => _AlbumChoiceDialogState();
-}
-
-class _AlbumChoiceDialogState extends State<_AlbumChoiceDialog> {
-  final _searchController = TextEditingController();
-  final _searchFocusNode = FocusNode();
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _searchFocusNode.requestFocus();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final filteredAlbums = _filteredAlbums;
-
-    return AlertDialog(
-      title: const Text('Album not found'),
-      content: SizedBox(
-        width: 520,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Parsed album "${widget.metadataAlbumTitle}" was not found. Do you want to create a new album?',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Search existing albums',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value.trim().toLowerCase();
-                });
-              },
-              onSubmitted: (_) => Navigator.of(
-                context,
-              ).pop(const _AlbumChoiceDialogResult.createNew()),
-            ),
-            const SizedBox(height: 12),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 320),
-              child: filteredAlbums.isEmpty
-                  ? const Center(child: Text('No albums match the search.'))
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: filteredAlbums.length,
-                      itemBuilder: (context, index) {
-                        final album = filteredAlbums[index];
-                        final albumId = album.id;
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(album.title),
-                          subtitle: albumId == null ? null : Text('#$albumId'),
-                          onTap: albumId == null
-                              ? null
-                              : () => Navigator.of(
-                                  context,
-                                ).pop(_AlbumChoiceDialogResult.select(albumId)),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(const _AlbumChoiceDialogResult.createNew()),
-          child: const Text('Create new'),
-        ),
-      ],
-    );
-  }
-
-  List<Album> get _filteredAlbums {
-    if (_searchQuery.isEmpty) {
-      return widget.availableAlbums;
-    }
-
-    return widget.availableAlbums
-        .where((album) => album.title.toLowerCase().contains(_searchQuery))
-        .toList();
   }
 }
 

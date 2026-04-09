@@ -3,6 +3,7 @@ import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list.dart';
 
 abstract class TracksStorage {
@@ -23,6 +24,14 @@ abstract class TracksStorage {
   });
 
   Future<List<Album>> getAlbums({
+    int page,
+    int pageSize,
+    int? authorId,
+    String? query,
+    bool? isPublished,
+  });
+
+  Future<StorageAlbumsList> getAlbumsList({
     int page,
     int pageSize,
     int? authorId,

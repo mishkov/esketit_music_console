@@ -6,6 +6,7 @@ import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
+import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
 import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
@@ -697,19 +698,6 @@ class _TracksSectionState extends State<TracksSection> {
   }
 
   Future<List<Album>> _loadAllAlbums(TracksStorage storage) async {
-    final albums = <Album>[];
-    var page = 1;
-
-    while (true) {
-      final chunk = await storage.getAlbums(
-        page: page,
-        pageSize: _filterOptionsPageSize,
-      );
-      albums.addAll(chunk);
-      if (chunk.length < _filterOptionsPageSize) {
-        return albums;
-      }
-      page += 1;
-    }
+    return loadAllAlbums(storage, pageSize: _filterOptionsPageSize);
   }
 }
