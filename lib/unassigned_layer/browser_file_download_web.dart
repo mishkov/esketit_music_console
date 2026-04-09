@@ -3,11 +3,11 @@
 import 'dart:html' as html;
 import 'dart:typed_data';
 
-void saveBytesAsFile({
+Future<void> saveBytesAsFile({
   required Uint8List bytes,
   required String fileName,
   required String contentType,
-}) {
+}) async {
   final blob = html.Blob(<dynamic>[bytes], contentType);
   final url = html.Url.createObjectUrlFromBlob(blob);
   final anchor = html.AnchorElement(href: url)

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-void saveBytesAsFile({
+Future<void> saveBytesAsFile({
   required Uint8List bytes,
   required String fileName,
   required String contentType,

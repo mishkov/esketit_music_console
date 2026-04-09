@@ -2757,7 +2757,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       final file = await context
           .read<TelegramImportRepository>()
           .downloadSkippedReport();
-      saveBytesAsFile(
+      await saveBytesAsFile(
         bytes: file.bytes,
         fileName: file.fileName,
         contentType: file.contentType,
@@ -2779,18 +2779,25 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     }
   }
 
-  void _downloadCurrentAudio() {
+  Future<void> _downloadCurrentAudio() async {
     final currentTrack = _session?.currentTrack;
     final bytes = _currentAudioBytes;
     if (currentTrack == null || bytes == null) {
       return;
     }
 
-    saveBytesAsFile(
-      bytes: bytes,
-      fileName: currentTrack.fileName,
-      contentType: currentTrack.mimeType,
-    );
+    try {
+      await saveBytesAsFile(
+        bytes: bytes,
+        fileName: currentTrack.fileName,
+        contentType: currentTrack.mimeType,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage(_errorMessageFrom(error));
+    }
   }
 
   Future<List<int>> _resolveAuthorIds() async {

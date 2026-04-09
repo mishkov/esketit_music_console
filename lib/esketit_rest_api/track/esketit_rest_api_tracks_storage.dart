@@ -1,13 +1,13 @@
 import 'dart:convert';
 
-import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/album.dart';
+import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
-import 'package:esketit_music_console/errors/album_cover_suggestions_unavailable_error.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
+import 'package:esketit_music_console/errors/album_cover_suggestions_unavailable_error.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
