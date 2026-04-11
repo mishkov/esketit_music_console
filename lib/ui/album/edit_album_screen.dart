@@ -11,6 +11,7 @@ import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class EditAlbumScreen extends StatefulWidget {
@@ -34,6 +35,8 @@ class EditAlbumScreen extends StatefulWidget {
 class _EditAlbumScreenState extends State<EditAlbumScreen> {
   final _titleController = TextEditingController();
   final _coverImagePathController = TextEditingController();
+  final _releaseDateController = TextEditingController();
+  final _releaseDateFocusNode = FocusNode();
   final List<TextTrackInfo> _additionalInfos = [];
   bool _isLoading = true;
   bool _isSaving = false;
@@ -61,6 +64,8 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   void dispose() {
     _titleController.dispose();
     _coverImagePathController.dispose();
+    _releaseDateController.dispose();
+    _releaseDateFocusNode.dispose();
     super.dispose();
   }
 
@@ -177,11 +182,18 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                       ),
                   ],
                   const SizedBox(height: 16),
-                  _SummaryCard(
+                  _EditableDateCard(
                     title: 'Release date',
-                    value: _formatDate(_releaseDate),
+                    controller: _releaseDateController,
+                    focusNode: _releaseDateFocusNode,
                     actionLabel: 'Change',
-                    onAction: _isLoading || _isSaving ? null : _pickReleaseDate,
+                    onAction: _isLoading || _isSaving
+                        ? null
+                        : _focusReleaseDateInput,
+                    onTap: _isLoading || _isSaving
+                        ? null
+                        : _prepareReleaseDateInput,
+                    enabled: !_isLoading && !_isSaving,
                   ),
                   const SizedBox(height: 16),
                   SwitchListTile(
@@ -365,6 +377,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
         _isLoading = false;
         _titleController.text = widget.initialTitle?.trim() ?? '';
         _releaseDate = widget.initialReleaseDate ?? DateTime.now().toUtc();
+        _syncReleaseDateController();
       });
       return;
     }
@@ -387,6 +400,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
         _titleController.text = album.title;
         _coverImagePathController.text = album.coverImagePath;
         _releaseDate = album.releaseDate;
+        _syncReleaseDateController();
         _isPublished = album.isPublished;
         _additionalInfos
           ..clear()
@@ -404,20 +418,15 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     }
   }
 
-  Future<void> _pickReleaseDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _releaseDate.toLocal(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(2100),
-    );
-    if (picked == null || !mounted) {
-      return;
-    }
+  void _focusReleaseDateInput() {
+    _prepareReleaseDateInput();
+    _releaseDateFocusNode.requestFocus();
+  }
 
-    setState(() {
-      _releaseDate = DateTime.utc(picked.year, picked.month, picked.day);
-    });
+  void _prepareReleaseDateInput() {
+    if (_releaseDateController.text == _formatDateInputValue(_releaseDate)) {
+      _releaseDateController.clear();
+    }
   }
 
   Future<void> _uploadCover() async {
@@ -469,7 +478,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
 
   Future<void> _refreshCoverSuggestions() async {
     final title = _titleController.text.trim();
-    final query = title.isEmpty ? '' : '$title cover image';
+    final query = title;
     final requestId = ++_coverSuggestionsRequestId;
 
     if (query.isEmpty) {
@@ -625,9 +634,23 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       ).showSnackBar(const SnackBar(content: Text('Album title is required.')));
       return;
     }
+
+    final parsedReleaseDate = _parseReleaseDateInput(
+      _releaseDateController.text,
+    );
+    if (parsedReleaseDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Release date must be entered as DDMMYYYY.'),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isSaving = true;
       _errorMessage = null;
+      _releaseDate = parsedReleaseDate;
     });
 
     final draft = Album(
@@ -635,7 +658,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       title: title,
       coverImagePath: _coverImagePathController.text.trim(),
       authors: _derivedAuthors,
-      releaseDate: _releaseDate,
+      releaseDate: parsedReleaseDate,
       isPublished: _isPublished,
       trackIds: _tracks.map((track) => track.id).whereType<int>().toList(),
       additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
@@ -769,11 +792,36 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     return error.toString();
   }
 
-  String _formatDate(DateTime date) {
+  DateTime? _parseReleaseDateInput(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 8) {
+      return null;
+    }
+
+    final day = int.tryParse(digits.substring(0, 2));
+    final month = int.tryParse(digits.substring(2, 4));
+    final year = int.tryParse(digits.substring(4, 8));
+    if (day == null || month == null || year == null) {
+      return null;
+    }
+
+    final parsed = DateTime.utc(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  void _syncReleaseDateController() {
+    _releaseDateController.text = _formatDateInputValue(_releaseDate);
+  }
+
+  String _formatDateInputValue(DateTime date) {
     final local = date.toLocal();
-    final month = local.month.toString().padLeft(2, '0');
     final day = local.day.toString().padLeft(2, '0');
-    return '${local.year}-$month-$day';
+    final month = local.month.toString().padLeft(2, '0');
+    return '$day$month${local.year}';
   }
 
   String get _coverSearchPreview {
@@ -803,18 +851,24 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
+class _EditableDateCard extends StatelessWidget {
+  const _EditableDateCard({
     required this.title,
-    required this.value,
+    required this.controller,
+    required this.focusNode,
     required this.actionLabel,
     required this.onAction,
+    required this.onTap,
+    required this.enabled,
   });
 
   final String title;
-  final String value;
+  final TextEditingController controller;
+  final FocusNode focusNode;
   final String actionLabel;
   final VoidCallback? onAction;
+  final VoidCallback? onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -826,17 +880,28 @@ class _SummaryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.labelMedium),
-                const SizedBox(height: 4),
-                Text(value, style: Theme.of(context).textTheme.bodyLarge),
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              enabled: enabled,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(8),
               ],
+              onTap: onTap,
+              decoration: InputDecoration(
+                labelText: title,
+                hintText: 'DDMMYYYY',
+                helperText: 'Example: 03042014',
+                border: const OutlineInputBorder(),
+              ),
             ),
           ),
+          const SizedBox(width: 12),
           FilledButton.tonal(onPressed: onAction, child: Text(actionLabel)),
         ],
       ),
