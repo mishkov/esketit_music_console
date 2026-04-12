@@ -20,6 +20,7 @@ import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AddTracksScreen extends StatefulWidget {
   const AddTracksScreen({super.key});
@@ -2971,6 +2972,8 @@ class _AuthorPickerDialog extends StatefulWidget {
 }
 
 class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
+  static const _recentAuthorNamesStorageKey = 'recent_author_picker_names_v1';
+
   late final Map<String, Author> _selectedAuthorsByKey = {
     for (final author in widget.availableAuthors)
       if (widget.initiallySelectedAuthors.any(
@@ -2987,101 +2990,143 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
       ))
         author.currentName.toLowerCase(): author,
   };
-  final _customAuthorController = TextEditingController();
+  late final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final List<String> _selectionOrderKeys = [];
+  List<String> _recentAuthorKeys = const [];
+  late String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selectionOrderKeys.addAll(_selectedAuthorsByKey.keys);
+    _loadRecentAuthors();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _searchFocusNode.requestFocus();
+      }
+    });
+  }
 
   @override
   void dispose() {
-    _customAuthorController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final recentAuthors = _recentAuthors;
+    final filteredAuthors = _filteredAuthors;
+    final trimmedSearchText = _searchController.text.trim();
+
     return AlertDialog(
       title: const Text('Select authors'),
       content: SizedBox(
-        width: 460,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_customSelectedAuthors.isNotEmpty) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Selected custom authors',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
+        width: 560,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              decoration: const InputDecoration(
+                labelText: 'Search authors',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value.trim().toLowerCase();
+                });
+              },
+              onSubmitted: (_) => _addCustomAuthor(),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: trimmedSearchText.isEmpty ? null : _addCustomAuthor,
+                icon: const Icon(Icons.add),
+                label: Text(
+                  trimmedSearchText.isEmpty
+                      ? 'Add author'
+                      : 'Add author $trimmedSearchText',
                 ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _customSelectedAuthors
-                        .map(
-                          (author) => InputChip(
-                            label: Text(author.currentName),
-                            onDeleted: () {
-                              setState(() {
-                                _selectedAuthorsByKey.remove(
-                                  author.currentName.toLowerCase(),
-                                );
-                              });
-                            },
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (widget.availableAuthors.isEmpty)
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('No authors in database yet.'),
-                )
-              else
-                ...widget.availableAuthors.map(
-                  (author) => CheckboxListTile(
-                    value: _selectedAuthorsByKey.containsKey(
-                      author.currentName.toLowerCase(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_customSelectedAuthors.isNotEmpty) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Selected custom authors',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _customSelectedAuthors
+                              .map(
+                                (author) => InputChip(
+                                  label: Text(author.currentName),
+                                  onDeleted: () {
+                                    setState(() {
+                                      _selectedAuthorsByKey.remove(
+                                        author.currentName.toLowerCase(),
+                                      );
+                                    });
+                                  },
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (recentAuthors.isNotEmpty) ...[
+                      Text(
+                        'Last selected authors',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      ...recentAuthors.map(_buildAuthorTile),
+                      const SizedBox(height: 12),
+                    ],
+                    Text(
+                      'All authors',
+                      style: Theme.of(context).textTheme.labelLarge,
                     ),
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(author.currentName),
-                    onChanged: (value) {
-                      setState(() {
-                        final key = author.currentName.toLowerCase();
-                        if (value == true) {
-                          _selectedAuthorsByKey[key] = author;
-                        } else {
-                          _selectedAuthorsByKey.remove(key);
-                        }
-                      });
-                    },
-                  ),
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _customAuthorController,
-                decoration: const InputDecoration(
-                  labelText: 'Add custom author',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (_) => _addCustomAuthor(),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _addCustomAuthor,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add custom author'),
+                    const SizedBox(height: 8),
+                    if (widget.availableAuthors.isEmpty)
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('No authors in database yet.'),
+                      )
+                    else if (filteredAuthors.isEmpty)
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('No authors match the search.'),
+                      )
+                    else
+                      ...filteredAuthors.map(_buildAuthorTile),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
       actions: [
@@ -3090,7 +3135,7 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () {
+          onPressed: () async {
             final authors = _selectedAuthorsByKey.values.toList();
 
             authors.sort(
@@ -3098,6 +3143,10 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
                 right.currentName.toLowerCase(),
               ),
             );
+            await _saveRecentAuthors();
+            if (!context.mounted) {
+              return;
+            }
             Navigator.of(context).pop(authors);
           },
           child: const Text('Apply'),
@@ -3107,16 +3156,18 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
   }
 
   void _addCustomAuthor() {
-    final authorName = _customAuthorController.text.trim();
+    final authorName = _searchController.text.trim();
     if (authorName.isEmpty) {
       return;
     }
+
     setState(() {
-      _selectedAuthorsByKey[authorName.toLowerCase()] = Author(
-        currentName: authorName,
-      );
+      final key = authorName.toLowerCase();
+      _selectedAuthorsByKey[key] = Author(currentName: authorName);
+      _markAuthorAsRecentlySelected(key);
     });
-    _customAuthorController.clear();
+    _searchController.clear();
+    _searchQuery = '';
   }
 
   List<Author> get _customSelectedAuthors {
@@ -3134,6 +3185,129 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
           right.currentName.toLowerCase(),
         ),
       );
+  }
+
+  List<Author> get _filteredAuthors {
+    if (_searchQuery.isEmpty) {
+      return widget.availableAuthors;
+    }
+
+    return widget.availableAuthors.where((author) {
+      final name = author.currentName.toLowerCase();
+      final id = author.id?.toString() ?? '';
+      return name.contains(_searchQuery) || id.contains(_searchQuery);
+    }).toList();
+  }
+
+  List<Author> get _recentAuthors {
+    if (_recentAuthorKeys.isEmpty) {
+      return const [];
+    }
+
+    final authorsByKey = {
+      for (final author in widget.availableAuthors)
+        author.currentName.toLowerCase(): author,
+    };
+
+    final filteredRecentAuthors = <Author>[];
+    for (final authorKey in _recentAuthorKeys) {
+      final author = authorsByKey[authorKey];
+      if (author == null) {
+        continue;
+      }
+      if (_searchQuery.isNotEmpty &&
+          !author.currentName.toLowerCase().contains(_searchQuery) &&
+          !(author.id?.toString().contains(_searchQuery) ?? false)) {
+        continue;
+      }
+      filteredRecentAuthors.add(author);
+    }
+    return filteredRecentAuthors;
+  }
+
+  Widget _buildAuthorTile(Author author) {
+    return CheckboxListTile(
+      value: _selectedAuthorsByKey.containsKey(
+        author.currentName.toLowerCase(),
+      ),
+      contentPadding: EdgeInsets.zero,
+      title: Text(author.currentName),
+      onChanged: (value) {
+        setState(() {
+          final key = author.currentName.toLowerCase();
+          if (value == true) {
+            _selectedAuthorsByKey[key] = author;
+            _markAuthorAsRecentlySelected(key);
+          } else {
+            _selectedAuthorsByKey.remove(key);
+          }
+        });
+      },
+    );
+  }
+
+  void _markAuthorAsRecentlySelected(String key) {
+    _selectionOrderKeys.remove(key);
+    _selectionOrderKeys.add(key);
+  }
+
+  Future<void> _loadRecentAuthors() async {
+    final preferences = await SharedPreferences.getInstance();
+    final storedRecentNames =
+        preferences.getStringList(_recentAuthorNamesStorageKey) ?? const [];
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _recentAuthorKeys = storedRecentNames
+          .map((name) => name.toLowerCase())
+          .where((name) => name.isNotEmpty)
+          .toList();
+    });
+  }
+
+  Future<void> _saveRecentAuthors() async {
+    final availableAuthorKeys = {
+      for (final author in widget.availableAuthors)
+        author.currentName.toLowerCase(),
+    };
+    final mergedRecentNames = <String>[];
+
+    for (final authorKey in _selectionOrderKeys.reversed) {
+      if (!_selectedAuthorsByKey.containsKey(authorKey)) {
+        continue;
+      }
+      if (!availableAuthorKeys.contains(authorKey)) {
+        continue;
+      }
+      mergedRecentNames.add(authorKey);
+      if (mergedRecentNames.length == 5) {
+        break;
+      }
+    }
+
+    if (mergedRecentNames.length < 5) {
+      for (final authorKey in _recentAuthorKeys) {
+        if (!availableAuthorKeys.contains(authorKey)) {
+          continue;
+        }
+        if (mergedRecentNames.contains(authorKey)) {
+          continue;
+        }
+        mergedRecentNames.add(authorKey);
+        if (mergedRecentNames.length == 5) {
+          break;
+        }
+      }
+    }
+
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      _recentAuthorNamesStorageKey,
+      mergedRecentNames,
+    );
+    _recentAuthorKeys = mergedRecentNames;
   }
 }
 
