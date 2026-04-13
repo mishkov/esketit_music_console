@@ -3,6 +3,7 @@ import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_lyrics.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list.dart';
 
@@ -12,6 +13,12 @@ abstract class TracksStorage {
   Future<Track> getTrack(int id);
 
   Future<Track> updateTrack(Track track);
+
+  Future<TrackLyrics?> getTrackLyrics(int trackId);
+
+  Future<TrackLyrics> putTrackLyrics(TrackLyrics lyrics);
+
+  Future<void> deleteTrackLyrics(int trackId);
 
   Future<void> deleteTrack(int id);
 

@@ -5,6 +5,7 @@ import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_lyrics.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/errors/album_cover_suggestions_unavailable_error.dart';
@@ -442,6 +443,45 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   @override
+  Future<TrackLyrics?> getTrackLyrics(int trackId) async {
+    final path = '/tracks/$trackId/lyrics';
+    final response = await _authenticatedHttpClient.get(path);
+    if (response.statusCode == 404) {
+      return null;
+    }
+    _throwIfUnexpectedStatus(response, path: path);
+    return _parseTrackLyrics(
+      _decodeJsonMap(response.response, path: path),
+      fallbackTrackId: trackId,
+    );
+  }
+
+  @override
+  Future<TrackLyrics> putTrackLyrics(TrackLyrics lyrics) async {
+    final path = '/tracks/${lyrics.trackId}/lyrics';
+    final response = await _authenticatedHttpClient.put(
+      path,
+      body: _serializeTrackLyrics(lyrics),
+    );
+    _throwIfUnexpectedStatus(
+      response,
+      path: path,
+      expectedStatusCodes: {200, 201},
+    );
+    return _parseTrackLyrics(
+      _decodeJsonMap(response.response, path: path),
+      fallbackTrackId: lyrics.trackId,
+    );
+  }
+
+  @override
+  Future<void> deleteTrackLyrics(int trackId) async {
+    final path = '/tracks/$trackId/lyrics';
+    final response = await _authenticatedHttpClient.delete(path);
+    _throwIfUnexpectedStatus(response, path: path, expectedStatusCodes: {204});
+  }
+
+  @override
   Future<void> deleteTrack(int id) async {
     final existingTrack = await getTrack(id);
     final response = await _authenticatedHttpClient.delete('/tracks/$id');
@@ -527,6 +567,70 @@ class EsketitRestApiTracksStorage implements TracksStorage {
         downloadUrl: _songDownloadUrl(audioFilePath),
       ),
     );
+  }
+
+  TrackLyrics _parseTrackLyrics(
+    Map<String, dynamic> json, {
+    required int fallbackTrackId,
+  }) {
+    return TrackLyrics(
+      trackId: (json['trackId'] as num?)?.toInt() ?? fallbackTrackId,
+      type: _parseTrackLyricsType((json['type'] as String?) ?? 'plain'),
+      languageCode: (json['languageCode'] as String?) ?? '',
+      isVerified: json['isVerified'] as bool? ?? false,
+      source: (json['source'] as String?) ?? '',
+      plainText: json['plainText'] as String?,
+      lines: (json['lines'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(_parseTrackLyricsLine)
+          .toList(),
+    );
+  }
+
+  TrackLyricsLine _parseTrackLyricsLine(Map<String, dynamic> json) {
+    return TrackLyricsLine(
+      startMs: (json['startMs'] as num?)?.toInt() ?? 0,
+      endMs: (json['endMs'] as num?)?.toInt(),
+      text: (json['text'] as String?) ?? '',
+    );
+  }
+
+  TrackLyricsType _parseTrackLyricsType(String value) {
+    switch (value) {
+      case 'plain':
+        return TrackLyricsType.plain;
+      case 'synced':
+        return TrackLyricsType.synced;
+      default:
+        throw AppError('Unsupported lyrics type: $value');
+    }
+  }
+
+  Map<String, dynamic> _serializeTrackLyrics(TrackLyrics lyrics) {
+    final languageCode = lyrics.languageCode.trim();
+    final source = lyrics.source.trim();
+
+    return {
+      'type': switch (lyrics.type) {
+        TrackLyricsType.plain => 'plain',
+        TrackLyricsType.synced => 'synced',
+      },
+      if (languageCode.isNotEmpty) 'languageCode': languageCode,
+      'isVerified': lyrics.isVerified,
+      if (source.isNotEmpty) 'source': source,
+      if (lyrics.type == TrackLyricsType.plain)
+        'plainText': (lyrics.plainText ?? '').trim(),
+      if (lyrics.type == TrackLyricsType.synced)
+        'lines': lyrics.lines.map(_serializeTrackLyricsLine).toList(),
+    };
+  }
+
+  Map<String, dynamic> _serializeTrackLyricsLine(TrackLyricsLine line) {
+    return {
+      'startMs': line.startMs,
+      if (line.endMs != null) 'endMs': line.endMs,
+      'text': line.text.trim(),
+    };
   }
 
   List<TrackInfo> _parseTrackInfos(Object? rawInfos) {

@@ -1,7 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:cross_file/cross_file.dart';
+import 'package:equatable/equatable.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_lyrics.dart';
+import 'package:esketit_music_console/domain/track_lyrics_import.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
@@ -25,17 +30,26 @@ class EditTrackScreen extends StatefulWidget {
 
 class _EditTrackScreenState extends State<EditTrackScreen> {
   final _titleController = TextEditingController();
+  final _lyricsLanguageCodeController = TextEditingController();
+  final _lyricsSourceController = TextEditingController();
+  final _lyricsPlainTextController = TextEditingController();
   final List<TextTrackInfo> _additionalInfos = [];
   final List<Author> _selectedAuthors = [];
+  final List<_EditableLyricsLine> _lyricsLines = [];
   List<Author> _availableAuthors = const [];
   List<Album> _availableAlbums = const [];
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _hasLyrics = false;
+  bool _hasPersistedLyrics = false;
+  bool _lyricsIsVerified = false;
   String? _errorMessage;
   int? _selectedAlbumId;
   Track? _track;
   Album? _currentAlbum;
   CrossFile? _replacementFile;
+  TrackLyricsType _lyricsType = TrackLyricsType.plain;
+  int _nextLyricsLineId = 0;
 
   @override
   void initState() {
@@ -46,6 +60,9 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   @override
   void dispose() {
     _titleController.dispose();
+    _lyricsLanguageCodeController.dispose();
+    _lyricsSourceController.dispose();
+    _lyricsPlainTextController.dispose();
     super.dispose();
   }
 
@@ -149,6 +166,58 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
+                    'Lyrics',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  _LyricsSection(
+                    hasLyrics: _hasLyrics,
+                    hasPersistedLyrics: _hasPersistedLyrics,
+                    lyricsType: _lyricsType,
+                    languageCodeController: _lyricsLanguageCodeController,
+                    sourceController: _lyricsSourceController,
+                    plainTextController: _lyricsPlainTextController,
+                    lyricsIsVerified: _lyricsIsVerified,
+                    lyricsLines: _lyricsLines,
+                    isLoading: _isLoading,
+                    isSaving: _isSaving,
+                    onStartPlainLyrics: () =>
+                        _startLyricsDraft(TrackLyricsType.plain),
+                    onStartSyncedLyrics: () =>
+                        _startLyricsDraft(TrackLyricsType.synced),
+                    onImportPlainLyrics: _importPlainLyrics,
+                    onImportSyncedLyrics: _importSyncedLyrics,
+                    onLyricsTypeChanged: (type) {
+                      setState(() {
+                        _lyricsType = type;
+                        if (_lyricsType == TrackLyricsType.synced &&
+                            _lyricsLines.isEmpty) {
+                          _lyricsLines.add(_createLyricsLine());
+                        }
+                      });
+                    },
+                    onLyricsVerifiedChanged: (value) {
+                      setState(() {
+                        _lyricsIsVerified = value;
+                      });
+                    },
+                    onLyricsLineChanged: (index, updatedLine) {
+                      setState(() {
+                        _lyricsLines[index] = updatedLine;
+                      });
+                    },
+                    onLyricsLineMoveUp: (index) => _moveLyricsLine(index, -1),
+                    onLyricsLineMoveDown: (index) => _moveLyricsLine(index, 1),
+                    onLyricsLineDelete: _removeLyricsLine,
+                    onAddLyricsLine: () {
+                      setState(() {
+                        _lyricsLines.add(_createLyricsLine());
+                      });
+                    },
+                    onDeleteLyrics: _deleteLyrics,
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
                     'Additional infos',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
@@ -215,10 +284,12 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       final authorsFuture = storage.getAuthors();
       final albumsFuture = loadAllAlbums(storage);
       final currentAlbumFuture = storage.getAlbum(track.albumId);
+      final lyricsFuture = storage.getTrackLyrics(widget.trackId);
 
       final authors = await authorsFuture;
       final albums = await albumsFuture;
       final currentAlbum = await currentAlbumFuture;
+      final lyrics = await lyricsFuture;
 
       if (!mounted) {
         return;
@@ -248,6 +319,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
           ..clear()
           ..addAll(track.additionalInfo.whereType<TextTrackInfo>());
         _replacementFile = null;
+        _applyLyricsState(lyrics);
         _isLoading = false;
       });
     } catch (error) {
@@ -259,6 +331,185 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
         _errorMessage = _describeError(error);
       });
     }
+  }
+
+  void _applyLyricsState(TrackLyrics? lyrics) {
+    _lyricsLines.clear();
+    _lyricsPlainTextController.clear();
+
+    if (lyrics == null) {
+      _hasLyrics = false;
+      _hasPersistedLyrics = false;
+      _lyricsType = TrackLyricsType.plain;
+      _lyricsLanguageCodeController.clear();
+      _lyricsSourceController.clear();
+      _lyricsIsVerified = false;
+      return;
+    }
+
+    _hasLyrics = true;
+    _hasPersistedLyrics = true;
+    _lyricsType = lyrics.type;
+    _lyricsLanguageCodeController.text = lyrics.languageCode;
+    _lyricsSourceController.text = lyrics.source;
+    _lyricsPlainTextController.text = lyrics.plainText ?? '';
+    _lyricsIsVerified = lyrics.isVerified;
+    _lyricsLines.addAll(
+      lyrics.lines.map(
+        (line) => _EditableLyricsLine(
+          id: _nextLyricsLineId++,
+          startMs: '${line.startMs}',
+          endMs: line.endMs?.toString() ?? '',
+          text: line.text,
+        ),
+      ),
+    );
+  }
+
+  void _startLyricsDraft(TrackLyricsType type) {
+    setState(() {
+      _hasLyrics = true;
+      _lyricsType = type;
+      if (type == TrackLyricsType.synced && _lyricsLines.isEmpty) {
+        _lyricsLines.add(_createLyricsLine());
+      }
+    });
+  }
+
+  _EditableLyricsLine _createLyricsLine() {
+    final previousLine = _lyricsLines.isEmpty ? null : _lyricsLines.last;
+    final suggestedStart =
+        previousLine?.parsedEndMs ?? previousLine?.parsedStartMs ?? 0;
+    return _EditableLyricsLine(
+      id: _nextLyricsLineId++,
+      startMs: '$suggestedStart',
+      endMs: '',
+      text: '',
+    );
+  }
+
+  Future<void> _deleteLyrics() async {
+    final trackId = _track?.id;
+    if (trackId == null) {
+      return;
+    }
+
+    if (!_hasPersistedLyrics) {
+      setState(() {
+        _clearLyricsDraft();
+      });
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete lyrics?'),
+          content: const Text(
+            'This removes the lyrics for this track. This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await context.read<TracksStorage>().deleteTrackLyrics(trackId);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _clearLyricsDraft();
+        _isSaving = false;
+      });
+      _showMessage('Lyrics deleted.');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSaving = false;
+        _errorMessage = _describeError(error);
+      });
+    }
+  }
+
+  void _clearLyricsDraft() {
+    _hasLyrics = false;
+    _hasPersistedLyrics = false;
+    _lyricsType = TrackLyricsType.plain;
+    _lyricsLanguageCodeController.clear();
+    _lyricsSourceController.clear();
+    _lyricsPlainTextController.clear();
+    _lyricsLines.clear();
+    _lyricsIsVerified = false;
+  }
+
+  ({TrackLyrics? lyrics, List<String> errors}) _buildLyricsPayload() {
+    if (!_hasLyrics) {
+      return (lyrics: null, errors: const <String>[]);
+    }
+
+    final errors = <String>[];
+    final lines = <TrackLyricsLine>[];
+    if (_lyricsType == TrackLyricsType.synced) {
+      for (var index = 0; index < _lyricsLines.length; index++) {
+        final line = _lyricsLines[index];
+        final lineNumber = index + 1;
+        final startMs = int.tryParse(line.startMs.trim());
+        if (startMs == null) {
+          errors.add('Line $lineNumber start time must be a valid integer.');
+          continue;
+        }
+
+        final trimmedEndMs = line.endMs.trim();
+        final endMs = trimmedEndMs.isEmpty ? null : int.tryParse(trimmedEndMs);
+        if (trimmedEndMs.isNotEmpty && endMs == null) {
+          errors.add('Line $lineNumber end time must be a valid integer.');
+          continue;
+        }
+
+        lines.add(
+          TrackLyricsLine(startMs: startMs, endMs: endMs, text: line.text),
+        );
+      }
+    }
+
+    final lyrics = TrackLyrics(
+      trackId: widget.trackId,
+      type: _lyricsType,
+      languageCode: _lyricsLanguageCodeController.text,
+      isVerified: _lyricsIsVerified,
+      source: _lyricsSourceController.text,
+      plainText: _lyricsType == TrackLyricsType.plain
+          ? _lyricsPlainTextController.text
+          : null,
+      lines: _lyricsType == TrackLyricsType.synced ? lines : const [],
+    );
+
+    return (
+      lyrics: lyrics,
+      errors: [...errors, ...validateTrackLyrics(lyrics)],
+    );
   }
 
   Future<void> _pickFile() async {
@@ -408,6 +659,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     final track = _track;
     final selectedAlbum = _selectedAlbum;
     final title = _titleController.text.trim();
+    final lyricsPayload = _buildLyricsPayload();
 
     if (track == null) {
       return;
@@ -422,6 +674,10 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     }
     if (_selectedAuthors.isEmpty) {
       _showMessage('Select at least one author.');
+      return;
+    }
+    if (lyricsPayload.errors.isNotEmpty) {
+      _showMessage(lyricsPayload.errors.first);
       return;
     }
 
@@ -444,6 +700,10 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
           file: _replacementFile ?? track.file,
         ),
       );
+      final lyrics = lyricsPayload.lyrics;
+      if (lyrics != null) {
+        await storage.putTrackLyrics(lyrics);
+      }
 
       if (!mounted) {
         return;
@@ -453,6 +713,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
         _track = updatedTrack;
         _selectedAlbumId = updatedTrack.albumId;
         _replacementFile = null;
+        _hasPersistedLyrics = lyrics != null;
         _isSaving = false;
       });
       Navigator.of(context).pop(true);
@@ -539,6 +800,88 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
         _errorMessage = _describeError(error);
       });
     }
+  }
+
+  void _moveLyricsLine(int index, int offset) {
+    final targetIndex = index + offset;
+    if (targetIndex < 0 || targetIndex >= _lyricsLines.length) {
+      return;
+    }
+    setState(() {
+      final line = _lyricsLines.removeAt(index);
+      _lyricsLines.insert(targetIndex, line);
+    });
+  }
+
+  void _removeLyricsLine(int index) {
+    setState(() {
+      _lyricsLines.removeAt(index);
+    });
+  }
+
+  Future<void> _importPlainLyrics() async {
+    final bytes = await _pickLyricsFile(allowedExtensions: const ['txt']);
+    if (bytes == null || !mounted) {
+      return;
+    }
+
+    try {
+      final plainText = parsePlainLyricsFile(bytes);
+      if (plainText.isEmpty) {
+        throw const FormatException('The selected TXT file is empty.');
+      }
+      setState(() {
+        _hasLyrics = true;
+        _lyricsType = TrackLyricsType.plain;
+        _lyricsPlainTextController.text = plainText;
+        _lyricsLines.clear();
+      });
+      _showMessage('Plain lyrics imported.');
+    } catch (error) {
+      _showMessage('Failed to import TXT lyrics: $error');
+    }
+  }
+
+  Future<void> _importSyncedLyrics() async {
+    final bytes = await _pickLyricsFile(allowedExtensions: const ['lrc']);
+    if (bytes == null || !mounted) {
+      return;
+    }
+
+    try {
+      final lines = parseLrcLyricsFile(bytes);
+      setState(() {
+        _hasLyrics = true;
+        _lyricsType = TrackLyricsType.synced;
+        _lyricsPlainTextController.clear();
+        _lyricsLines
+          ..clear()
+          ..addAll(
+            lines.map(
+              (line) => _EditableLyricsLine(
+                id: _nextLyricsLineId++,
+                startMs: '${line.startMs}',
+                endMs: line.endMs?.toString() ?? '',
+                text: line.text,
+              ),
+            ),
+          );
+      });
+      _showMessage('Synced lyrics imported.');
+    } catch (error) {
+      _showMessage('Failed to import LRC lyrics: $error');
+    }
+  }
+
+  Future<Uint8List?> _pickLyricsFile({
+    required List<String> allowedExtensions,
+  }) async {
+    final result = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: allowedExtensions,
+    );
+    return result?.files.single.bytes;
   }
 
   void _removeAuthor(Author author) {
@@ -865,6 +1208,471 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
           right.currentName.toLowerCase(),
         ),
       );
+  }
+}
+
+class _LyricsSection extends StatelessWidget {
+  const _LyricsSection({
+    required this.hasLyrics,
+    required this.hasPersistedLyrics,
+    required this.lyricsType,
+    required this.languageCodeController,
+    required this.sourceController,
+    required this.plainTextController,
+    required this.lyricsIsVerified,
+    required this.lyricsLines,
+    required this.isLoading,
+    required this.isSaving,
+    required this.onStartPlainLyrics,
+    required this.onStartSyncedLyrics,
+    required this.onImportPlainLyrics,
+    required this.onImportSyncedLyrics,
+    required this.onLyricsTypeChanged,
+    required this.onLyricsVerifiedChanged,
+    required this.onLyricsLineChanged,
+    required this.onLyricsLineMoveUp,
+    required this.onLyricsLineMoveDown,
+    required this.onLyricsLineDelete,
+    required this.onAddLyricsLine,
+    required this.onDeleteLyrics,
+  });
+
+  final bool hasLyrics;
+  final bool hasPersistedLyrics;
+  final TrackLyricsType lyricsType;
+  final TextEditingController languageCodeController;
+  final TextEditingController sourceController;
+  final TextEditingController plainTextController;
+  final bool lyricsIsVerified;
+  final List<_EditableLyricsLine> lyricsLines;
+  final bool isLoading;
+  final bool isSaving;
+  final VoidCallback onStartPlainLyrics;
+  final VoidCallback onStartSyncedLyrics;
+  final Future<void> Function() onImportPlainLyrics;
+  final Future<void> Function() onImportSyncedLyrics;
+  final ValueChanged<TrackLyricsType> onLyricsTypeChanged;
+  final ValueChanged<bool> onLyricsVerifiedChanged;
+  final void Function(int index, _EditableLyricsLine updatedLine)
+  onLyricsLineChanged;
+  final ValueChanged<int> onLyricsLineMoveUp;
+  final ValueChanged<int> onLyricsLineMoveDown;
+  final ValueChanged<int> onLyricsLineDelete;
+  final VoidCallback onAddLyricsLine;
+  final Future<void> Function() onDeleteLyrics;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!hasLyrics) {
+      return _LyricsEmptyState(
+        isDisabled: isLoading || isSaving,
+        onStartPlainLyrics: onStartPlainLyrics,
+        onStartSyncedLyrics: onStartSyncedLyrics,
+        onImportPlainLyrics: onImportPlainLyrics,
+        onImportSyncedLyrics: onImportSyncedLyrics,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SegmentedButton<TrackLyricsType>(
+          segments: const [
+            ButtonSegment(
+              value: TrackLyricsType.plain,
+              icon: Icon(Icons.notes),
+              label: Text('Plain'),
+            ),
+            ButtonSegment(
+              value: TrackLyricsType.synced,
+              icon: Icon(Icons.av_timer),
+              label: Text('Synced'),
+            ),
+          ],
+          selected: {lyricsType},
+          onSelectionChanged: isSaving
+              ? null
+              : (selection) => onLyricsTypeChanged(selection.first),
+        ),
+        const SizedBox(height: 16),
+        _LyricsMetadataFields(
+          languageCodeController: languageCodeController,
+          sourceController: sourceController,
+          lyricsIsVerified: lyricsIsVerified,
+          isSaving: isSaving,
+          onLyricsVerifiedChanged: onLyricsVerifiedChanged,
+        ),
+        const SizedBox(height: 12),
+        if (lyricsType == TrackLyricsType.plain)
+          TextField(
+            controller: plainTextController,
+            enabled: !isSaving,
+            minLines: 8,
+            maxLines: 16,
+            decoration: const InputDecoration(
+              labelText: 'Lyrics text',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(),
+            ),
+          )
+        else
+          _SyncedLyricsEditor(
+            lyricsLines: lyricsLines,
+            isSaving: isSaving,
+            onLyricsLineChanged: onLyricsLineChanged,
+            onLyricsLineMoveUp: onLyricsLineMoveUp,
+            onLyricsLineMoveDown: onLyricsLineMoveDown,
+            onLyricsLineDelete: onLyricsLineDelete,
+            onAddLyricsLine: onAddLyricsLine,
+          ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: isSaving
+                  ? null
+                  : lyricsType == TrackLyricsType.plain
+                  ? onImportPlainLyrics
+                  : onImportSyncedLyrics,
+              icon: const Icon(Icons.upload_file),
+              label: Text(
+                lyricsType == TrackLyricsType.plain
+                    ? 'Import .txt'
+                    : 'Import .lrc',
+              ),
+            ),
+            TextButton.icon(
+              onPressed: isSaving ? null : onDeleteLyrics,
+              icon: const Icon(Icons.delete_outline),
+              label: Text(
+                hasPersistedLyrics ? 'Delete lyrics' : 'Remove lyrics draft',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LyricsEmptyState extends StatelessWidget {
+  const _LyricsEmptyState({
+    required this.isDisabled,
+    required this.onStartPlainLyrics,
+    required this.onStartSyncedLyrics,
+    required this.onImportPlainLyrics,
+    required this.onImportSyncedLyrics,
+  });
+
+  final bool isDisabled;
+  final VoidCallback onStartPlainLyrics;
+  final VoidCallback onStartSyncedLyrics;
+  final Future<void> Function() onImportPlainLyrics;
+  final Future<void> Function() onImportSyncedLyrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _EmptyStateCard(message: 'This track has no lyrics yet.'),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: isDisabled ? null : onStartPlainLyrics,
+              icon: const Icon(Icons.notes),
+              label: const Text('Add plain lyrics'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: isDisabled ? null : onImportPlainLyrics,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import .txt'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: isDisabled ? null : onStartSyncedLyrics,
+              icon: const Icon(Icons.av_timer),
+              label: const Text('Add synced lyrics'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: isDisabled ? null : onImportSyncedLyrics,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import .lrc'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LyricsMetadataFields extends StatelessWidget {
+  const _LyricsMetadataFields({
+    required this.languageCodeController,
+    required this.sourceController,
+    required this.lyricsIsVerified,
+    required this.isSaving,
+    required this.onLyricsVerifiedChanged,
+  });
+
+  final TextEditingController languageCodeController;
+  final TextEditingController sourceController;
+  final bool lyricsIsVerified;
+  final bool isSaving;
+  final ValueChanged<bool> onLyricsVerifiedChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: languageCodeController,
+                enabled: !isSaving,
+                decoration: const InputDecoration(
+                  labelText: 'Language code',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: sourceController,
+                enabled: !isSaving,
+                decoration: const InputDecoration(
+                  labelText: 'Source',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          value: lyricsIsVerified,
+          onChanged: isSaving ? null : onLyricsVerifiedChanged,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Verified lyrics'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SyncedLyricsEditor extends StatelessWidget {
+  const _SyncedLyricsEditor({
+    required this.lyricsLines,
+    required this.isSaving,
+    required this.onLyricsLineChanged,
+    required this.onLyricsLineMoveUp,
+    required this.onLyricsLineMoveDown,
+    required this.onLyricsLineDelete,
+    required this.onAddLyricsLine,
+  });
+
+  final List<_EditableLyricsLine> lyricsLines;
+  final bool isSaving;
+  final void Function(int index, _EditableLyricsLine updatedLine)
+  onLyricsLineChanged;
+  final ValueChanged<int> onLyricsLineMoveUp;
+  final ValueChanged<int> onLyricsLineMoveDown;
+  final ValueChanged<int> onLyricsLineDelete;
+  final VoidCallback onAddLyricsLine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (lyricsLines.isEmpty)
+          const _EmptyStateCard(message: 'No synced lyric lines yet.')
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: lyricsLines.length,
+            itemBuilder: (context, index) {
+              final line = lyricsLines[index];
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: index == lyricsLines.length - 1 ? 0 : 12,
+                ),
+                child: _SyncedLyricsLineCard(
+                  key: ValueKey(line.id),
+                  index: index,
+                  line: line,
+                  isSaving: isSaving,
+                  onChanged: (updatedLine) =>
+                      onLyricsLineChanged(index, updatedLine),
+                  onMoveUp: index == 0 ? null : () => onLyricsLineMoveUp(index),
+                  onMoveDown: index == lyricsLines.length - 1
+                      ? null
+                      : () => onLyricsLineMoveDown(index),
+                  onDelete: () => onLyricsLineDelete(index),
+                ),
+              );
+            },
+          ),
+        const SizedBox(height: 12),
+        FilledButton.tonalIcon(
+          onPressed: isSaving ? null : onAddLyricsLine,
+          icon: const Icon(Icons.add),
+          label: const Text('Add line'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditableLyricsLine extends Equatable {
+  const _EditableLyricsLine({
+    required this.id,
+    required this.startMs,
+    required this.endMs,
+    required this.text,
+  });
+
+  final int id;
+  final String startMs;
+  final String endMs;
+  final String text;
+
+  int? get parsedStartMs => int.tryParse(startMs.trim());
+  int? get parsedEndMs =>
+      endMs.trim().isEmpty ? null : int.tryParse(endMs.trim());
+
+  _EditableLyricsLine copyWith({String? startMs, String? endMs, String? text}) {
+    return _EditableLyricsLine(
+      id: id,
+      startMs: startMs ?? this.startMs,
+      endMs: endMs ?? this.endMs,
+      text: text ?? this.text,
+    );
+  }
+
+  @override
+  List<Object?> get props => [id, startMs, endMs, text];
+}
+
+class _SyncedLyricsLineCard extends StatelessWidget {
+  const _SyncedLyricsLineCard({
+    super.key,
+    required this.index,
+    required this.line,
+    required this.isSaving,
+    required this.onChanged,
+    required this.onDelete,
+    required this.onMoveUp,
+    required this.onMoveDown,
+  });
+
+  final int index;
+  final _EditableLyricsLine line;
+  final bool isSaving;
+  final ValueChanged<_EditableLyricsLine> onChanged;
+  final VoidCallback onDelete;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Line ${index + 1}',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: isSaving ? null : onMoveUp,
+                  icon: const Icon(Icons.arrow_upward),
+                  tooltip: 'Move up',
+                ),
+                IconButton(
+                  onPressed: isSaving ? null : onMoveDown,
+                  icon: const Icon(Icons.arrow_downward),
+                  tooltip: 'Move down',
+                ),
+                IconButton(
+                  onPressed: isSaving ? null : onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Remove',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 140,
+                  child: TextFormField(
+                    enabled: !isSaving,
+                    initialValue: line.startMs,
+                    decoration: const InputDecoration(
+                      labelText: 'Start ms',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) {
+                      onChanged(line.copyWith(startMs: value));
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 140,
+                  child: TextFormField(
+                    enabled: !isSaving,
+                    initialValue: line.endMs,
+                    decoration: const InputDecoration(
+                      labelText: 'End ms',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    onChanged: (value) {
+                      onChanged(line.copyWith(endMs: value));
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    enabled: !isSaving,
+                    initialValue: line.text,
+                    decoration: const InputDecoration(
+                      labelText: 'Text',
+                      border: OutlineInputBorder(),
+                    ),
+                    minLines: 1,
+                    maxLines: 3,
+                    onChanged: (value) {
+                      onChanged(line.copyWith(text: value));
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
