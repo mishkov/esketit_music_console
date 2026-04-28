@@ -5,12 +5,16 @@ import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
-import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
+import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
+import 'package:esketit_music_console/domain/track_info/track_info.dart';
+import 'package:esketit_music_console/domain/track_metadata_validation.dart';
+import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/album/album_picker.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
+import 'package:esketit_music_console/ui/track/track_metadata_editor.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/browser_file_download.dart';
 import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
@@ -66,7 +70,8 @@ class _UploadSingleFileTab extends StatefulWidget {
 
 class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
   final _titleController = TextEditingController();
-  final List<TextTrackInfo> _additionalInfos = [];
+  final List<TrackInfo> _additionalInfos = [];
+  final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
   List<Author> _availableAuthors = const [];
   List<Album> _availableAlbums = const [];
@@ -91,8 +96,6 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -155,54 +158,23 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
                 const SizedBox(height: 16),
                 const Divider(),
                 const SizedBox(height: 12),
-                Text(
-                  'Additional infos',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                if (_additionalInfos.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: colorScheme.outlineVariant),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      'No additional infos yet.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  )
-                else
-                  ..._additionalInfos.asMap().entries.map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _AdditionalInfoCard(
-                        info: entry.value,
-                        onDelete: _isSaving
-                            ? null
-                            : () => _removeAdditionalInfo(entry.key),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                MenuAnchor(
-                  menuChildren: [
-                    MenuItemButton(
-                      onPressed: _showAddTextInfoDialog,
-                      child: const Text('Text info'),
-                    ),
-                  ],
-                  builder: (context, controller, child) {
-                    return FilledButton.tonalIcon(
-                      onPressed: _isSaving
-                          ? null
-                          : () => controller.isOpen
-                                ? controller.close()
-                                : controller.open(),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add additional info'),
-                    );
+                TrackMetadataEditor(
+                  additionalInfo: _additionalInfos,
+                  sourceMetadata: _sourceMetadata,
+                  enabled: !_isSaving,
+                  onAdditionalInfoChanged: (items) {
+                    setState(() {
+                      _additionalInfos
+                        ..clear()
+                        ..addAll(items);
+                    });
+                  },
+                  onSourceMetadataChanged: (items) {
+                    setState(() {
+                      _sourceMetadata
+                        ..clear()
+                        ..addAll(items);
+                    });
                   },
                 ),
                 const SizedBox(height: 24),
@@ -459,75 +431,6 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
     });
   }
 
-  Future<void> _showAddTextInfoDialog() async {
-    final titleController = TextEditingController();
-    final textController = TextEditingController();
-
-    final info = await showDialog<TextTrackInfo>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add text info'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Info title',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: textController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Info text',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final title = titleController.text.trim();
-                final text = textController.text.trim();
-                if (title.isEmpty && text.isEmpty) {
-                  Navigator.of(context).pop();
-                  return;
-                }
-                Navigator.of(
-                  context,
-                ).pop(TextTrackInfo(title: title, text: text));
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-
-    titleController.dispose();
-    textController.dispose();
-
-    if (info == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _additionalInfos.add(info);
-    });
-  }
-
   Future<void> _saveTrack() async {
     if (_pickedFile == null || _titleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -548,6 +451,20 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       );
       return;
     }
+    final additionalInfoErrors = validateTrackAdditionalInfo(_additionalInfos);
+    if (additionalInfoErrors.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(additionalInfoErrors.first)));
+      return;
+    }
+    final sourceMetadataErrors = validateTrackSourceMetadata(_sourceMetadata);
+    if (sourceMetadataErrors.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(sourceMetadataErrors.first)));
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -560,7 +477,8 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
           authors: List<Author>.from(_selectedAuthors),
           albumId: selectedAlbum!.id!,
           albumOrder: selectedAlbum.trackIds.length,
-          additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+          additionalInfo: List<TrackInfo>.from(_additionalInfos),
+          sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: _pickedFile!,
         ),
       );
@@ -592,12 +510,6 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
   void _removeAuthor(Author author) {
     setState(() {
       _selectedAuthors.remove(author);
-    });
-  }
-
-  void _removeAdditionalInfo(int index) {
-    setState(() {
-      _additionalInfos.removeAt(index);
     });
   }
 
@@ -636,6 +548,7 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
       _pickedFile = null;
       _titleController.clear();
       _additionalInfos.clear();
+      _sourceMetadata.clear();
       _selectedAuthors.clear();
       _selectedAlbumId = _availableAlbums.isEmpty
           ? null
@@ -716,7 +629,8 @@ class _ZipImportTab extends StatefulWidget {
 
 class _ZipImportTabState extends State<_ZipImportTab> {
   final _titleController = TextEditingController();
-  final List<TextTrackInfo> _additionalInfos = [];
+  final List<TrackInfo> _additionalInfos = [];
+  final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
   List<Author> _availableAuthors = const [];
   List<Album> _availableAlbums = const [];
@@ -859,59 +773,23 @@ class _ZipImportTabState extends State<_ZipImportTab> {
                       const SizedBox(height: 16),
                       const Divider(),
                       const SizedBox(height: 12),
-                      Text(
-                        'Additional infos',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      if (_additionalInfos.isEmpty)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.outlineVariant,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            'No additional infos yet.',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                        )
-                      else
-                        ..._additionalInfos.asMap().entries.map(
-                          (entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _AdditionalInfoCard(
-                              info: entry.value,
-                              onDelete:
-                                  _isSaving || _isSkipping || _isCancelling
-                                  ? null
-                                  : () => _removeAdditionalInfo(entry.key),
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-                      MenuAnchor(
-                        menuChildren: [
-                          MenuItemButton(
-                            onPressed: _showAddTextInfoDialog,
-                            child: const Text('Text info'),
-                          ),
-                        ],
-                        builder: (context, controller, child) {
-                          return FilledButton.tonalIcon(
-                            onPressed: _isSaving || _isSkipping || _isCancelling
-                                ? null
-                                : () => controller.isOpen
-                                      ? controller.close()
-                                      : controller.open(),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add additional info'),
-                          );
+                      TrackMetadataEditor(
+                        additionalInfo: _additionalInfos,
+                        sourceMetadata: _sourceMetadata,
+                        enabled: !_isSaving && !_isSkipping && !_isCancelling,
+                        onAdditionalInfoChanged: (items) {
+                          setState(() {
+                            _additionalInfos
+                              ..clear()
+                              ..addAll(items);
+                          });
+                        },
+                        onSourceMetadataChanged: (items) {
+                          setState(() {
+                            _sourceMetadata
+                              ..clear()
+                              ..addAll(items);
+                          });
                         },
                       ),
                       const SizedBox(height: 24),
@@ -1160,6 +1038,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
       setState(() {
         _titleController.clear();
         _additionalInfos.clear();
+        _sourceMetadata.clear();
         _selectedAuthors.clear();
       });
       return;
@@ -1170,6 +1049,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
           ? entry.metadata.title!
           : _titleFromFileName(entry.fileName);
       _additionalInfos.clear();
+      _sourceMetadata.clear();
       _selectedAuthors.clear();
       if (!_availableAlbums.any((album) => album.id == _selectedAlbumId)) {
         _selectedAlbumId = _availableAlbums.isEmpty
@@ -1305,75 +1185,6 @@ class _ZipImportTabState extends State<_ZipImportTab> {
     });
   }
 
-  Future<void> _showAddTextInfoDialog() async {
-    final titleController = TextEditingController();
-    final textController = TextEditingController();
-
-    final info = await showDialog<TextTrackInfo>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add text info'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Info title',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: textController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Info text',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final title = titleController.text.trim();
-                final text = textController.text.trim();
-                if (title.isEmpty && text.isEmpty) {
-                  Navigator.of(context).pop();
-                  return;
-                }
-                Navigator.of(
-                  context,
-                ).pop(TextTrackInfo(title: title, text: text));
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-
-    titleController.dispose();
-    textController.dispose();
-
-    if (info == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _additionalInfos.add(info);
-    });
-  }
-
   Future<void> _saveAndNext() async {
     final session = _session;
     final entry = session?.currentEntry;
@@ -1396,6 +1207,16 @@ class _ZipImportTabState extends State<_ZipImportTab> {
       _showMessage('Select at least one author.');
       return;
     }
+    final additionalInfoErrors = validateTrackAdditionalInfo(_additionalInfos);
+    if (additionalInfoErrors.isNotEmpty) {
+      _showMessage(additionalInfoErrors.first);
+      return;
+    }
+    final sourceMetadataErrors = validateTrackSourceMetadata(_sourceMetadata);
+    if (sourceMetadataErrors.isNotEmpty) {
+      _showMessage(sourceMetadataErrors.first);
+      return;
+    }
 
     if (!mounted) {
       return;
@@ -1416,7 +1237,8 @@ class _ZipImportTabState extends State<_ZipImportTab> {
           authors: List<Author>.from(_selectedAuthors),
           albumId: selectedAlbum!.id!,
           albumOrder: selectedAlbum.trackIds.length,
-          additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+          additionalInfo: List<TrackInfo>.from(_additionalInfos),
+          sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: CrossFile(file: xFile),
         ),
       );
@@ -1476,6 +1298,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
       _session = null;
       _titleController.clear();
       _additionalInfos.clear();
+      _sourceMetadata.clear();
       _selectedAuthors.clear();
       _isCancelling = false;
     });
@@ -1488,12 +1311,6 @@ class _ZipImportTabState extends State<_ZipImportTab> {
   void _removeAuthor(Author author) {
     setState(() {
       _selectedAuthors.remove(author);
-    });
-  }
-
-  void _removeAdditionalInfo(int index) {
-    setState(() {
-      _additionalInfos.removeAt(index);
     });
   }
 
@@ -1566,7 +1383,8 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   final _channelUsernameController = TextEditingController();
   final _startMessageIdController = TextEditingController();
   final _titleController = TextEditingController();
-  final List<TextTrackInfo> _additionalInfos = [];
+  final List<TrackInfo> _additionalInfos = [];
+  final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
   List<Author> _availableAuthors = const [];
   List<Album> _availableAlbums = const [];
@@ -1915,56 +1733,23 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
         const SizedBox(height: 16),
         const Divider(),
         const SizedBox(height: 12),
-        Text(
-          'Additional infos',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 12),
-        if (_additionalInfos.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'No additional infos yet.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          )
-        else
-          ..._additionalInfos.asMap().entries.map(
-            (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _AdditionalInfoCard(
-                info: entry.value,
-                onDelete: _isSaving || _isSkipping || _isCancelling
-                    ? null
-                    : () => _removeAdditionalInfo(entry.key),
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        MenuAnchor(
-          menuChildren: [
-            MenuItemButton(
-              onPressed: _showAddTextInfoDialog,
-              child: const Text('Text info'),
-            ),
-          ],
-          builder: (context, controller, child) {
-            return FilledButton.tonalIcon(
-              onPressed: _isSaving || _isSkipping || _isCancelling
-                  ? null
-                  : () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add additional info'),
-            );
+        TrackMetadataEditor(
+          additionalInfo: _additionalInfos,
+          sourceMetadata: _sourceMetadata,
+          enabled: !_isSaving && !_isSkipping && !_isCancelling,
+          onAdditionalInfoChanged: (items) {
+            setState(() {
+              _additionalInfos
+                ..clear()
+                ..addAll(items);
+            });
+          },
+          onSourceMetadataChanged: (items) {
+            setState(() {
+              _sourceMetadata
+                ..clear()
+                ..addAll(items);
+            });
           },
         ),
         const SizedBox(height: 24),
@@ -2256,6 +2041,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
         _loadedTrackMessageId = null;
         _titleController.clear();
         _additionalInfos.clear();
+        _sourceMetadata.clear();
         _selectedAuthors.clear();
       });
       return;
@@ -2270,7 +2056,12 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       _currentAudioBytes = null;
       _audioErrorMessage = null;
       _titleController.text = track.parsedTitle;
-      _additionalInfos.clear();
+      _additionalInfos
+        ..clear()
+        ..addAll(_defaultTelegramAdditionalInfo(track));
+      _sourceMetadata
+        ..clear()
+        ..addAll(_defaultTelegramSourceMetadata(session, track));
       _selectedAuthors.clear();
       if (!_availableAlbums.any((album) => album.id == _selectedAlbumId)) {
         _selectedAlbumId = _availableAlbums.isEmpty
@@ -2416,75 +2207,6 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     });
   }
 
-  Future<void> _showAddTextInfoDialog() async {
-    final titleController = TextEditingController();
-    final textController = TextEditingController();
-
-    final info = await showDialog<TextTrackInfo>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add text info'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Info title',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: textController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Info text',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final title = titleController.text.trim();
-                final text = textController.text.trim();
-                if (title.isEmpty && text.isEmpty) {
-                  Navigator.of(context).pop();
-                  return;
-                }
-                Navigator.of(
-                  context,
-                ).pop(TextTrackInfo(title: title, text: text));
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-
-    titleController.dispose();
-    textController.dispose();
-
-    if (info == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _additionalInfos.add(info);
-    });
-  }
-
   Future<void> _saveAndNext() async {
     final title = _titleController.text.trim();
     final selectedAlbum = _selectedAlbum;
@@ -2506,6 +2228,16 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       _showMessage('Select at least one author.');
       return;
     }
+    final additionalInfoErrors = validateTrackAdditionalInfo(_additionalInfos);
+    if (additionalInfoErrors.isNotEmpty) {
+      _showMessage(additionalInfoErrors.first);
+      return;
+    }
+    final sourceMetadataErrors = validateTrackSourceMetadata(_sourceMetadata);
+    if (sourceMetadataErrors.isNotEmpty) {
+      _showMessage(sourceMetadataErrors.first);
+      return;
+    }
 
     if (!mounted) {
       return;
@@ -2523,7 +2255,8 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
         authorIds: authorIds,
         albumId: selectedAlbum!.id!,
         albumOrder: selectedAlbum.trackIds.length,
-        additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+        additionalInfo: List<TrackInfo>.from(_additionalInfos),
+        sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
       );
 
       await _loadAlbums();
@@ -2628,6 +2361,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
       });
       _titleController.clear();
       _additionalInfos.clear();
+      _sourceMetadata.clear();
       _selectedAuthors.clear();
       _showMessage('Telegram import session cancelled.');
     } catch (error) {
@@ -2753,12 +2487,6 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     });
   }
 
-  void _removeAdditionalInfo(int index) {
-    setState(() {
-      _additionalInfos.removeAt(index);
-    });
-  }
-
   void _addSelectedAuthor(Author author) {
     final exists = _selectedAuthors.any(
       (selected) =>
@@ -2824,6 +2552,43 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  List<TrackInfo> _defaultTelegramAdditionalInfo(TelegramImportTrack track) {
+    final link = track.telegramMessageLink.trim();
+    if (link.isEmpty) {
+      return const [];
+    }
+    return [
+      ExternalLinkTrackInfo(
+        provider: 'telegram',
+        title: 'Telegram message',
+        url: link,
+      ),
+    ];
+  }
+
+  List<TrackSourceMetadata> _defaultTelegramSourceMetadata(
+    TelegramImportSession? session,
+    TelegramImportTrack track,
+  ) {
+    if (track.messageId <= 0) {
+      return const [];
+    }
+    return [
+      TrackSourceMetadata(
+        provider: 'telegram',
+        kind: 'message',
+        identity: {
+          if (session?.channelUsername.trim().isNotEmpty ?? false)
+            'chatId': session!.channelUsername.trim(),
+          'messageId': '${track.messageId}',
+        },
+        url: track.telegramMessageLink.trim().isEmpty
+            ? null
+            : track.telegramMessageLink.trim(),
+      ),
+    ];
   }
 }
 
@@ -3308,28 +3073,5 @@ class _AuthorPickerDialogState extends State<_AuthorPickerDialog> {
       mergedRecentNames,
     );
     _recentAuthorKeys = mergedRecentNames;
-  }
-}
-
-class _AdditionalInfoCard extends StatelessWidget {
-  const _AdditionalInfoCard({required this.info, required this.onDelete});
-
-  final TextTrackInfo info;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        title: Text(info.title.isEmpty ? 'Untitled info' : info.title),
-        subtitle: info.text.isEmpty ? null : Text(info.text),
-        trailing: IconButton(
-          onPressed: onDelete,
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'Remove',
-        ),
-      ),
-    );
   }
 }

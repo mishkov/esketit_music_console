@@ -1,3 +1,5 @@
 import 'package:equatable/equatable.dart';
 
-abstract class TrackInfo extends Equatable {}
+abstract class TrackInfo extends Equatable {
+  const TrackInfo();
+}

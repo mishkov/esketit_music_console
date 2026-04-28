@@ -6,13 +6,12 @@ import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
-import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
-import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/errors/album_cover_suggestions_unavailable_error.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_response.dart';
+import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
@@ -359,7 +358,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           'albumId': track.albumId,
           'albumOrder': track.albumOrder,
           'audioFilePath': uploadedSong.name,
-          'additionalInfo': _serializeTrackInfos(track.additionalInfo),
+          'additionalInfo': serializeTrackInfos(track.additionalInfo),
+          'sourceMetadata': serializeTrackSourceMetadata(track.sourceMetadata),
         },
       );
       _throwIfUnexpectedStatus(
@@ -415,7 +415,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           'albumId': track.albumId,
           'albumOrder': albumOrder,
           'audioFilePath': uploadedSong.name,
-          'additionalInfo': _serializeTrackInfos(track.additionalInfo),
+          'additionalInfo': serializeTrackInfos(track.additionalInfo),
+          'sourceMetadata': serializeTrackSourceMetadata(track.sourceMetadata),
         },
       );
       _throwIfUnexpectedStatus(response, path: '/tracks/$id');
@@ -520,7 +521,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           .whereType<num>()
           .map((id) => id.toInt())
           .toList(),
-      additionalInfo: _parseTrackInfos(json['additionalInfo']),
+      additionalInfo: parseTrackInfos(json['additionalInfo']),
     );
   }
 
@@ -560,7 +561,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           )
           .toList(),
       albumId: (json['albumId'] as num?)?.toInt() ?? 0,
-      additionalInfo: _parseTrackInfos(json['additionalInfo']),
+      additionalInfo: parseTrackInfos(json['additionalInfo']),
+      sourceMetadata: parseTrackSourceMetadata(json['sourceMetadata']),
       file: StorageFile(
         name: _songFileName(audioFilePath),
         storagePath: audioFilePath,
@@ -633,40 +635,6 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     };
   }
 
-  List<TrackInfo> _parseTrackInfos(Object? rawInfos) {
-    return (rawInfos as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(_parseTrackInfo)
-        .whereType<TrackInfo>()
-        .toList();
-  }
-
-  TrackInfo? _parseTrackInfo(Map<String, dynamic> json) {
-    switch (json['type']) {
-      case 'text':
-        return TextTrackInfo(
-          title: (json['title'] as String?) ?? '',
-          text: (json['text'] as String?) ?? '',
-        );
-      default:
-        return null;
-    }
-  }
-
-  List<Map<String, dynamic>> _serializeTrackInfos(List<TrackInfo> infos) {
-    return infos
-        .map(_serializeTrackInfo)
-        .whereType<Map<String, dynamic>>()
-        .toList();
-  }
-
-  Map<String, dynamic>? _serializeTrackInfo(TrackInfo info) {
-    if (info is TextTrackInfo) {
-      return {'type': 'text', 'title': info.title, 'text': info.text};
-    }
-    return null;
-  }
-
   Map<String, dynamic> _serializeAlbum(Album album) {
     return {
       'title': album.title,
@@ -679,7 +647,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       'releaseDate': album.releaseDate.toUtc().toIso8601String(),
       'isPublished': album.isPublished,
       'trackIds': album.trackIds,
-      'additionalInfo': _serializeTrackInfos(album.additionalInfo),
+      'additionalInfo': serializeTrackInfos(album.additionalInfo),
     };
   }
 

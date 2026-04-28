@@ -1,10 +1,160 @@
+import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
+import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_response.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
+import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('EsketitRestApiTracksStorage track metadata', () {
+    test(
+      'serializes create requests with external links and source metadata',
+      () async {
+        final httpClient = _FakeHttpClient(
+          getResponses: {
+            '/authors': const HttpResponse(
+              statusCode: 200,
+              response: [
+                {'id': 7, 'currentName': 'Author', 'photos': []},
+              ],
+            ),
+          },
+          postResponses: {
+            '/tracks': const HttpResponse(statusCode: 201, response: {}),
+          },
+        );
+        final storage = EsketitRestApiTracksStorage(
+          authenticatedHttpClient: httpClient,
+          baseUri: Uri.parse('http://localhost:8080'),
+        );
+
+        await storage.putTrack(
+          Track(
+            name: 'Track title',
+            authors: const [Author(id: 7, currentName: 'Author')],
+            albumId: 12,
+            albumOrder: 3,
+            additionalInfo: const [
+              ExternalLinkTrackInfo(
+                provider: 'spotify',
+                title: 'Streaming',
+                url: 'https://open.spotify.com/track/123',
+              ),
+            ],
+            sourceMetadata: const [
+              TrackSourceMetadata(
+                provider: 'spotify',
+                kind: 'track',
+                identity: {'videoId': '123'},
+                url: 'https://music.youtube.com/watch?v=123',
+              ),
+            ],
+            file: StorageFile(
+              name: 'song.mp3',
+              storagePath: '/songs/song.mp3',
+              downloadUrl: 'http://localhost:8080/songs/song.mp3',
+            ),
+          ),
+        );
+
+        expect(httpClient.lastPostPath, '/tracks');
+        expect(httpClient.lastPostBody, {
+          'name': 'Track title',
+          'authorIds': [7],
+          'albumId': 12,
+          'albumOrder': 3,
+          'audioFilePath': '/songs/song.mp3',
+          'additionalInfo': [
+            {
+              'type': 'external_link',
+              'provider': 'spotify',
+              'title': 'Streaming',
+              'url': 'https://open.spotify.com/track/123',
+            },
+          ],
+          'sourceMetadata': [
+            {
+              'provider': 'spotify',
+              'identity': {'videoId': '123'},
+              'kind': 'track',
+              'url': 'https://music.youtube.com/watch?v=123',
+            },
+          ],
+        });
+      },
+    );
+
+    test(
+      'parses external links and source metadata from track responses',
+      () async {
+        final httpClient = _FakeHttpClient(
+          getResponses: {
+            '/tracks/5': const HttpResponse(
+              statusCode: 200,
+              response: {
+                'id': 5,
+                'name': 'Imported track',
+                'authorIds': [7],
+                'albumId': 3,
+                'audioFilePath': '/songs/imported.mp3',
+                'additionalInfo': [
+                  {
+                    'id': 'link-1',
+                    'type': 'external_link',
+                    'provider': 'telegram',
+                    'title': 'Telegram message',
+                    'url': 'https://t.me/channel/123',
+                  },
+                ],
+                'sourceMetadata': [
+                  {
+                    'provider': 'telegram',
+                    'kind': 'message',
+                    'identity': {'chatId': 'channel_name', 'messageId': '123'},
+                    'url': 'https://t.me/channel_name/123',
+                  },
+                ],
+              },
+            ),
+            '/authors': const HttpResponse(
+              statusCode: 200,
+              response: [
+                {'id': 7, 'currentName': 'Author', 'photos': []},
+              ],
+            ),
+          },
+        );
+        final storage = EsketitRestApiTracksStorage(
+          authenticatedHttpClient: httpClient,
+          baseUri: Uri.parse('http://localhost:8080'),
+        );
+
+        final track = await storage.getTrack(5);
+
+        expect(track.additionalInfo, const [
+          ExternalLinkTrackInfo(
+            id: 'link-1',
+            provider: 'telegram',
+            title: 'Telegram message',
+            url: 'https://t.me/channel/123',
+          ),
+        ]);
+        expect(track.sourceMetadata, const [
+          TrackSourceMetadata(
+            provider: 'telegram',
+            kind: 'message',
+            identity: {'chatId': 'channel_name', 'messageId': '123'},
+            url: 'https://t.me/channel_name/123',
+          ),
+        ]);
+      },
+    );
+  });
+
   group('EsketitRestApiTracksStorage lyrics', () {
     test('returns null when lyrics endpoint responds with 404', () async {
       final httpClient = _FakeHttpClient(
@@ -162,13 +312,18 @@ void main() {
 class _FakeHttpClient implements HttpClient {
   _FakeHttpClient({
     Map<String, HttpResponse>? getResponses,
+    Map<String, HttpResponse>? postResponses,
     Map<String, HttpResponse>? putResponses,
   }) : _getResponses = getResponses ?? const {},
+       _postResponses = postResponses ?? const {},
        _putResponses = putResponses ?? const {};
 
   final Map<String, HttpResponse> _getResponses;
+  final Map<String, HttpResponse> _postResponses;
   final Map<String, HttpResponse> _putResponses;
 
+  String? lastPostPath;
+  Object? lastPostBody;
   String? lastPutPath;
   Object? lastPutBody;
 
@@ -209,8 +364,14 @@ class _FakeHttpClient implements HttpClient {
     String path, {
     Map<String, String>? headers,
     Object? body,
-  }) {
-    throw UnimplementedError();
+  }) async {
+    lastPostPath = path;
+    lastPostBody = body;
+    final response = _postResponses[path];
+    if (response == null) {
+      throw StateError('No fake POST response for $path');
+    }
+    return response;
   }
 
   @override

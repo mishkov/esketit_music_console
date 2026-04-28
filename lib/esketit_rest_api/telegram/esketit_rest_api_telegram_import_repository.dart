@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
+import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_response.dart';
+import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 
@@ -143,6 +144,7 @@ class EsketitRestApiTelegramImportRepository
     required int albumId,
     required int albumOrder,
     required List<TrackInfo> additionalInfo,
+    required List<TrackSourceMetadata> sourceMetadata,
   }) async {
     final response = await _httpClient.post(
       '/telegram/import-sessions/current/save',
@@ -151,7 +153,8 @@ class EsketitRestApiTelegramImportRepository
         'authorIds': authorIds,
         'albumId': albumId,
         'albumOrder': albumOrder,
-        'additionalInfo': _serializeTrackInfos(additionalInfo),
+        'additionalInfo': serializeTrackInfos(additionalInfo),
+        'sourceMetadata': serializeTrackSourceMetadata(sourceMetadata),
       },
     );
     _throwIfUnexpectedStatus(
@@ -211,18 +214,6 @@ class EsketitRestApiTelegramImportRepository
           'telegram-skipped-report.csv',
       contentType: response.contentType ?? 'text/csv',
     );
-  }
-
-  List<Map<String, dynamic>> _serializeTrackInfos(List<TrackInfo> infos) {
-    return infos
-        .map((info) {
-          if (info is TextTrackInfo) {
-            return {'type': 'text', 'title': info.title, 'text': info.text};
-          }
-          return null;
-        })
-        .whereType<Map<String, dynamic>>()
-        .toList();
   }
 
   Map<String, dynamic> _decodeJsonMap(Object? body, {required String path}) {

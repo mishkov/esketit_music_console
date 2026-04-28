@@ -5,14 +5,17 @@ import 'package:equatable/equatable.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
 import 'package:esketit_music_console/domain/track_lyrics_import.dart';
-import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
+import 'package:esketit_music_console/domain/track_metadata_validation.dart';
+import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/album/album_picker.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
+import 'package:esketit_music_console/ui/track/track_metadata_editor.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:file_picker/file_picker.dart';
@@ -33,7 +36,8 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   final _lyricsLanguageCodeController = TextEditingController();
   final _lyricsSourceController = TextEditingController();
   final _lyricsPlainTextController = TextEditingController();
-  final List<TextTrackInfo> _additionalInfos = [];
+  final List<TrackInfo> _additionalInfos = [];
+  final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
   final List<_EditableLyricsLine> _lyricsLines = [];
   List<Author> _availableAuthors = const [];
@@ -217,32 +221,24 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                     onDeleteLyrics: _deleteLyrics,
                   ),
                   const SizedBox(height: 24),
-                  Text(
-                    'Additional infos',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  if (_additionalInfos.isEmpty)
-                    const _EmptyStateCard(message: 'No additional infos yet.')
-                  else
-                    ..._additionalInfos.asMap().entries.map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _AdditionalInfoCard(
-                          info: entry.value,
-                          onDelete: _isSaving
-                              ? null
-                              : () => _removeAdditionalInfo(entry.key),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  FilledButton.tonalIcon(
-                    onPressed: _isLoading || _isSaving
-                        ? null
-                        : _showAddTextInfoDialog,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add additional info'),
+                  TrackMetadataEditor(
+                    additionalInfo: _additionalInfos,
+                    sourceMetadata: _sourceMetadata,
+                    enabled: !_isLoading && !_isSaving,
+                    onAdditionalInfoChanged: (items) {
+                      setState(() {
+                        _additionalInfos
+                          ..clear()
+                          ..addAll(items);
+                      });
+                    },
+                    onSourceMetadataChanged: (items) {
+                      setState(() {
+                        _sourceMetadata
+                          ..clear()
+                          ..addAll(items);
+                      });
+                    },
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -317,7 +313,10 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
           ..addAll(track.authors);
         _additionalInfos
           ..clear()
-          ..addAll(track.additionalInfo.whereType<TextTrackInfo>());
+          ..addAll(track.additionalInfo);
+        _sourceMetadata
+          ..clear()
+          ..addAll(track.sourceMetadata);
         _replacementFile = null;
         _applyLyricsState(lyrics);
         _isLoading = false;
@@ -586,80 +585,13 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     });
   }
 
-  Future<void> _showAddTextInfoDialog() async {
-    final titleController = TextEditingController();
-    final textController = TextEditingController();
-
-    final info = await showDialog<TextTrackInfo>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Add text info'),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Info title',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: textController,
-                  maxLines: 4,
-                  decoration: const InputDecoration(
-                    labelText: 'Info text',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final title = titleController.text.trim();
-                final text = textController.text.trim();
-                if (title.isEmpty && text.isEmpty) {
-                  Navigator.of(context).pop();
-                  return;
-                }
-                Navigator.of(
-                  context,
-                ).pop(TextTrackInfo(title: title, text: text));
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        );
-      },
-    );
-
-    titleController.dispose();
-    textController.dispose();
-
-    if (info == null || !mounted) {
-      return;
-    }
-
-    setState(() {
-      _additionalInfos.add(info);
-    });
-  }
-
   Future<void> _saveTrack() async {
     final track = _track;
     final selectedAlbum = _selectedAlbum;
     final title = _titleController.text.trim();
     final lyricsPayload = _buildLyricsPayload();
+    final additionalInfoErrors = validateTrackAdditionalInfo(_additionalInfos);
+    final sourceMetadataErrors = validateTrackSourceMetadata(_sourceMetadata);
 
     if (track == null) {
       return;
@@ -680,6 +612,14 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       _showMessage(lyricsPayload.errors.first);
       return;
     }
+    if (additionalInfoErrors.isNotEmpty) {
+      _showMessage(additionalInfoErrors.first);
+      return;
+    }
+    if (sourceMetadataErrors.isNotEmpty) {
+      _showMessage(sourceMetadataErrors.first);
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -696,7 +636,8 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
           authors: List<Author>.from(_selectedAuthors),
           albumId: selectedAlbum.id!,
           albumOrder: albumOrder,
-          additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
+          additionalInfo: List<TrackInfo>.from(_additionalInfos),
+          sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: _replacementFile ?? track.file,
         ),
       );
@@ -887,12 +828,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   void _removeAuthor(Author author) {
     setState(() {
       _selectedAuthors.remove(author);
-    });
-  }
-
-  void _removeAdditionalInfo(int index) {
-    setState(() {
-      _additionalInfos.removeAt(index);
     });
   }
 
@@ -1670,29 +1605,6 @@ class _SyncedLyricsLineCard extends StatelessWidget {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AdditionalInfoCard extends StatelessWidget {
-  const _AdditionalInfoCard({required this.info, required this.onDelete});
-
-  final TextTrackInfo info;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        title: Text(info.title.isEmpty ? 'Untitled info' : info.title),
-        subtitle: info.text.isEmpty ? null : Text(info.text),
-        trailing: IconButton(
-          onPressed: onDelete,
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'Remove',
         ),
       ),
     );

@@ -101,8 +101,7 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
             isLoading: false,
           ),
         );
-      } catch (error, stackTrace) {
-        print('$error $stackTrace');
+      } catch (error) {
         emit(
           state.copyWith(
             isLoading: false,

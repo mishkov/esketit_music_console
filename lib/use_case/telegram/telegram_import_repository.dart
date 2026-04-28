@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
+import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
 
 abstract class TelegramImportRepository {
@@ -31,6 +32,7 @@ abstract class TelegramImportRepository {
     required int albumId,
     required int albumOrder,
     required List<TrackInfo> additionalInfo,
+    required List<TrackSourceMetadata> sourceMetadata,
   });
 
   Future<void> cancelCurrentSession();
