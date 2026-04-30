@@ -4,6 +4,8 @@ import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_c
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api_telegram_import_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
+import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_cookies_repository.dart';
+import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_import_repository.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
@@ -21,6 +23,8 @@ import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
+import 'package:esketit_music_console/use_case/youtube/youtube_cookies_repository.dart';
+import 'package:esketit_music_console/use_case/youtube/youtube_import_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -65,6 +69,17 @@ class AppRoot extends StatelessWidget {
         ),
         RepositoryProvider<TelegramImportRepository>(
           create: (_) => EsketitRestApiTelegramImportRepository(
+            httpClient: authenticatedHttpClient,
+          ),
+        ),
+        RepositoryProvider<YouTubeImportRepository>(
+          create: (_) => EsketitRestApiYouTubeImportRepository(
+            httpClient: authenticatedHttpClient,
+            baseUri: baseUri,
+          ),
+        ),
+        RepositoryProvider<YouTubeCookiesRepository>(
+          create: (_) => EsketitRestApiYouTubeCookiesRepository(
             httpClient: authenticatedHttpClient,
           ),
         ),

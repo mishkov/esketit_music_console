@@ -11,6 +11,7 @@ import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_response.dart';
+import 'package:esketit_music_console/esketit_rest_api/track/track_json_parser.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
@@ -51,7 +52,13 @@ class EsketitRestApiTracksStorage implements TracksStorage {
 
     final tracks = (body['items'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
-        .map((track) => _parseTrack(track, authorsById))
+        .map(
+          (track) => parseTrackJson(
+            track,
+            baseUri: _baseUri,
+            authorsById: authorsById,
+          ),
+        )
         .toList();
 
     return StorageTracksList(
@@ -170,9 +177,17 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     _throwIfUnexpectedStatus(response, path: '/albums/$albumId/tracks');
     final authorsById = await _getAuthorsById();
     return _decodeJsonListOfMaps(
-      response.response,
-      path: '/albums/$albumId/tracks',
-    ).map((track) => _parseTrack(track, authorsById)).toList();
+          response.response,
+          path: '/albums/$albumId/tracks',
+        )
+        .map(
+          (track) => parseTrackJson(
+            track,
+            baseUri: _baseUri,
+            authorsById: authorsById,
+          ),
+        )
+        .toList();
   }
 
   @override
@@ -380,9 +395,10 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   Future<Track> getTrack(int id) async {
     final response = await _authenticatedHttpClient.get('/tracks/$id');
     _throwIfUnexpectedStatus(response, path: '/tracks/$id');
-    return _parseTrack(
+    return parseTrackJson(
       _decodeJsonMap(response.response, path: '/tracks/$id'),
-      await _getAuthorsById(),
+      baseUri: _baseUri,
+      authorsById: await _getAuthorsById(),
     );
   }
 
@@ -428,9 +444,10 @@ class EsketitRestApiTracksStorage implements TracksStorage {
         );
       }
 
-      return _parseTrack(
+      return parseTrackJson(
         _decodeJsonMap(response.response, path: '/tracks/$id'),
-        await _getAuthorsById(),
+        baseUri: _baseUri,
+        authorsById: await _getAuthorsById(),
       );
     } catch (_) {
       if (_songReferencesDiffer(previousSongReference, uploadedSong.name)) {
@@ -541,33 +558,6 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       width: width,
       height: height,
       sourcePageUrl: (json['sourcePageUrl'] as String?)?.trim(),
-    );
-  }
-
-  Track _parseTrack(Map<String, dynamic> json, Map<int, Author> authorsById) {
-    final audioFilePath = (json['audioFilePath'] as String?) ?? '';
-    final authorIds = (json['authorIds'] as List<dynamic>? ?? const [])
-        .whereType<num>()
-        .map((id) => id.toInt());
-
-    return Track(
-      id: (json['id'] as num?)?.toInt(),
-      name: (json['name'] as String?) ?? '',
-      authors: authorIds
-          .map(
-            (id) =>
-                authorsById[id] ??
-                Author(id: id, currentName: 'Unknown author #$id'),
-          )
-          .toList(),
-      albumId: (json['albumId'] as num?)?.toInt() ?? 0,
-      additionalInfo: parseTrackInfos(json['additionalInfo']),
-      sourceMetadata: parseTrackSourceMetadata(json['sourceMetadata']),
-      file: StorageFile(
-        name: _songFileName(audioFilePath),
-        storagePath: audioFilePath,
-        downloadUrl: _songDownloadUrl(audioFilePath),
-      ),
     );
   }
 
@@ -689,7 +679,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     String? songReference, {
     required bool ignoreReferencedOrMissing,
   }) async {
-    final songName = _songFileName(songReference);
+    final songName = songFileName(songReference);
     if (songName.isEmpty) {
       return;
     }
@@ -719,44 +709,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   bool _songReferencesDiffer(String? first, String? second) {
-    return _songFileName(first) != _songFileName(second);
-  }
-
-  String _songDownloadUrl(String songReference) {
-    final trimmed = songReference.trim();
-    if (trimmed.isEmpty) {
-      return _baseUri.resolve('/songs/').toString();
-    }
-    final uri = Uri.tryParse(trimmed);
-    if (uri != null && uri.hasScheme) {
-      return trimmed;
-    }
-    if (trimmed.startsWith('/songs/')) {
-      return _baseUri.resolve(trimmed).toString();
-    }
-    return _baseUri
-        .resolve('/songs/${Uri.encodeComponent(trimmed)}')
-        .toString();
-  }
-
-  String _songFileName(String? songReference) {
-    final trimmed = songReference?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return '';
-    }
-
-    final uri = Uri.tryParse(trimmed);
-    if (uri != null && uri.hasScheme) {
-      if (uri.pathSegments.isEmpty) {
-        return trimmed;
-      }
-      return _decodeUriComponentIfPossible(uri.pathSegments.last);
-    }
-    if (trimmed.startsWith('/songs/')) {
-      final withoutPrefix = trimmed.substring('/songs/'.length);
-      return _decodeUriComponentIfPossible(withoutPrefix);
-    }
-    return _decodeUriComponentIfPossible(trimmed);
+    return songFileName(first) != songFileName(second);
   }
 
   String _decodeUriComponentIfPossible(String value) {

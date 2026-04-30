@@ -1,6 +1,12 @@
+import 'dart:typed_data';
+
+import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_cookies_models.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
+import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
+import 'package:esketit_music_console/use_case/youtube/youtube_cookies_repository.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -16,13 +22,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _codeController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  TelegramStatus? _status;
+  TelegramStatus? _telegramStatus;
+  YouTubeCookiesStatus? _youTubeCookiesStatus;
   bool _isLoading = true;
   bool _isRequestingCode = false;
   bool _isConfirmingCode = false;
   bool _isConfirmingPassword = false;
+  bool _isUploadingYouTubeCookies = false;
+  bool _isDeletingYouTubeCookies = false;
   String? _errorMessage;
   bool _codeRequested = false;
+  String? _selectedYouTubeCookiesFileName;
+  Uint8List? _selectedYouTubeCookiesBytes;
 
   @override
   void initState() {
@@ -40,6 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin =
+        context.select((AuthBloc bloc) => bloc.state.session?.user.isAdmin) ??
+        false;
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -78,6 +93,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'Telegram Integration',
                       child: _buildTelegramSection(context),
                     ),
+                    if (isAdmin) ...[
+                      const SizedBox(height: 16),
+                      _SettingsCard(
+                        title: 'YouTube Cookies',
+                        child: _buildYouTubeCookiesSection(context),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -89,7 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildTelegramSection(BuildContext context) {
-    final status = _status;
+    final status = _telegramStatus;
     if (status == null) {
       return const Text('Loading Telegram integration status...');
     }
@@ -233,23 +255,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildYouTubeCookiesSection(BuildContext context) {
+    final status = _youTubeCookiesStatus;
+    if (status == null) {
+      return const Text('Loading YouTube cookies status...');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'This file is used by the server for YouTube/YouTube Music downloads that require login, including age-restricted tracks.',
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'The file should be a browser-exported YouTube cookies file.',
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'The file is sensitive and should only be uploaded by an admin.',
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'If downloads start failing again, re-upload a fresh cookies file.',
+        ),
+        const SizedBox(height: 16),
+        _StatusRow(
+          label: 'Configured',
+          value: status.configured ? 'Yes' : 'No',
+        ),
+        _StatusRow(
+          label: 'File present',
+          value: status.filePresent ? 'Yes' : 'No',
+        ),
+        _StatusRow(
+          label: 'Last updated',
+          value: status.lastModified == null
+              ? 'Unknown'
+              : _formatDateTime(status.lastModified!),
+        ),
+        if (!status.configured) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Cookie storage is not configured on the backend. Upload is unavailable until the server is configured.',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ] else ...[
+          const SizedBox(height: 16),
+          _StatusRow(
+            label: 'Selected file',
+            value: _selectedYouTubeCookiesFileName ?? 'No file selected',
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed:
+                    _isUploadingYouTubeCookies || _isDeletingYouTubeCookies
+                    ? null
+                    : _pickYouTubeCookiesFile,
+                icon: const Icon(Icons.upload_file),
+                label: Text(
+                  _selectedYouTubeCookiesFileName == null
+                      ? 'Pick cookies file'
+                      : 'Replace file',
+                ),
+              ),
+              FilledButton(
+                onPressed:
+                    _selectedYouTubeCookiesBytes == null ||
+                        _isUploadingYouTubeCookies ||
+                        _isDeletingYouTubeCookies
+                    ? null
+                    : _uploadYouTubeCookiesFile,
+                child: Text(
+                  _isUploadingYouTubeCookies ? 'Uploading...' : 'Upload',
+                ),
+              ),
+              if (status.filePresent)
+                TextButton(
+                  onPressed:
+                      _isUploadingYouTubeCookies || _isDeletingYouTubeCookies
+                      ? null
+                      : _deleteYouTubeCookiesFile,
+                  child: Text(
+                    _isDeletingYouTubeCookies ? 'Removing...' : 'Remove file',
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
   Future<void> _loadStatus() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
+    final telegramRepository = context.read<TelegramImportRepository>();
+    final youTubeCookiesRepository = context.read<YouTubeCookiesRepository>();
+
     try {
-      final status = await context.read<TelegramImportRepository>().getStatus();
+      final telegramStatus = await telegramRepository.getStatus();
+      final youTubeCookiesStatus = await youTubeCookiesRepository.getStatus();
       if (!mounted) {
         return;
       }
       setState(() {
-        _status = status;
+        _telegramStatus = telegramStatus;
+        _youTubeCookiesStatus = youTubeCookiesStatus;
         _isLoading = false;
         _isConfirmingCode = false;
         _isConfirmingPassword = false;
-        if (status.authorized) {
+        if (telegramStatus.authorized) {
           _codeRequested = false;
           _codeController.clear();
           _passwordController.clear();
@@ -287,13 +410,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _codeRequested = true;
         _isRequestingCode = false;
-        _status = TelegramStatus(
-          configured: _status?.configured ?? true,
+        _telegramStatus = TelegramStatus(
+          configured: _telegramStatus?.configured ?? true,
           authorized: false,
           passwordRequired: false,
-          accountIdentifier: _status?.accountIdentifier,
-          importTempDir: _status?.importTempDir,
-          sessionStorageFile: _status?.sessionStorageFile,
+          accountIdentifier: _telegramStatus?.accountIdentifier,
+          importTempDir: _telegramStatus?.importTempDir,
+          sessionStorageFile: _telegramStatus?.sessionStorageFile,
         );
       });
       _showMessage('Telegram login code requested.');
@@ -328,7 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
       setState(() {
-        _status = status;
+        _telegramStatus = status;
         _isConfirmingCode = false;
         _codeRequested = true;
       });
@@ -374,7 +497,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
       setState(() {
-        _status = status;
+        _telegramStatus = status;
         _isConfirmingPassword = false;
       });
       if (status.authorized) {
@@ -399,11 +522,114 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _pickYouTubeCookiesFile() async {
+    final result = await FilePicker.platform.pickFiles(withData: true);
+    final file = result?.files.single;
+    if (file == null || file.bytes == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedYouTubeCookiesFileName = file.name;
+      _selectedYouTubeCookiesBytes = file.bytes;
+    });
+  }
+
+  Future<void> _uploadYouTubeCookiesFile() async {
+    final fileName = _selectedYouTubeCookiesFileName;
+    final bytes = _selectedYouTubeCookiesBytes;
+    if (fileName == null || bytes == null) {
+      _showMessage('Pick a cookies file first.');
+      return;
+    }
+
+    setState(() {
+      _isUploadingYouTubeCookies = true;
+    });
+
+    try {
+      final status = await context
+          .read<YouTubeCookiesRepository>()
+          .uploadCookies(fileName: fileName, bytes: bytes);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isUploadingYouTubeCookies = false;
+        _selectedYouTubeCookiesFileName = null;
+        _selectedYouTubeCookiesBytes = null;
+        _youTubeCookiesStatus = status;
+      });
+      _showMessage('YouTube cookies file uploaded.');
+      await _refreshYouTubeCookiesStatus();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isUploadingYouTubeCookies = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _deleteYouTubeCookiesFile() async {
+    setState(() {
+      _isDeletingYouTubeCookies = true;
+    });
+
+    try {
+      await context.read<YouTubeCookiesRepository>().deleteCookies();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isDeletingYouTubeCookies = false;
+      });
+      _showMessage('YouTube cookies file removed.');
+      await _refreshYouTubeCookiesStatus();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isDeletingYouTubeCookies = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _refreshYouTubeCookiesStatus() async {
+    try {
+      final status = await context.read<YouTubeCookiesRepository>().getStatus();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _youTubeCookiesStatus = status;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
   String _errorMessageFrom(Object error) {
     if (error is HttpAppError) {
       return error.message;
     }
     return error.toString();
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final normalized = dateTime.toUtc();
+    final date =
+        '${normalized.year.toString().padLeft(4, '0')}-${normalized.month.toString().padLeft(2, '0')}-${normalized.day.toString().padLeft(2, '0')}';
+    final time =
+        '${normalized.hour.toString().padLeft(2, '0')}:${normalized.minute.toString().padLeft(2, '0')}';
+    return '$date $time UTC';
   }
 
   void _showMessage(String message) {

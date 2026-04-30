@@ -5,6 +5,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
+import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_import_models.dart';
 import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/domain/track_metadata_validation.dart';
@@ -18,9 +19,11 @@ import 'package:esketit_music_console/ui/track/track_metadata_editor.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/browser_file_download.dart';
 import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
+import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
+import 'package:esketit_music_console/use_case/youtube/youtube_import_repository.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -36,26 +39,30 @@ class AddTracksScreen extends StatefulWidget {
 class _AddTracksScreenState extends State<AddTracksScreen> {
   @override
   Widget build(BuildContext context) {
+    final isAdmin =
+        context.select((AuthBloc bloc) => bloc.state.session?.user.isAdmin) ??
+        false;
+    final tabs = [
+      const Tab(text: 'Upload single file'),
+      const Tab(text: 'Import from ZIP'),
+      const Tab(text: 'Import from Telegram'),
+      if (isAdmin) const Tab(text: 'Import from YouTube'),
+    ];
+    final views = [
+      const _UploadSingleFileTab(),
+      const _ZipImportTab(),
+      const _TelegramImportTab(),
+      if (isAdmin) const _YouTubeImportTab(),
+    ];
+
     return DefaultTabController(
-      length: 3,
+      length: tabs.length,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Add Tracks'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Upload single file'),
-              Tab(text: 'Import from ZIP'),
-              Tab(text: 'Import from Telegram'),
-            ],
-          ),
+          bottom: TabBar(isScrollable: true, tabs: tabs),
         ),
-        body: const TabBarView(
-          children: [
-            _UploadSingleFileTab(),
-            _ZipImportTab(),
-            _TelegramImportTab(),
-          ],
-        ),
+        body: TabBarView(children: views),
       ),
     );
   }
@@ -2592,11 +2599,1561 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   }
 }
 
+class _YouTubeImportTab extends StatefulWidget {
+  const _YouTubeImportTab();
+
+  @override
+  State<_YouTubeImportTab> createState() => _YouTubeImportTabState();
+}
+
+class _YouTubeImportTabState extends State<_YouTubeImportTab> {
+  final _urlController = TextEditingController();
+  final _titleController = TextEditingController();
+  final List<Author> _selectedAuthors = [];
+  final Map<int, Track> _suggestedTracksById = {};
+  List<Author> _availableAuthors = const [];
+  List<Album> _availableAlbums = const [];
+
+  YouTubeImportSession? _session;
+  DateTime? _releaseDateCutoff;
+  bool _replaceExisting = false;
+  bool _isLoadingState = true;
+  bool _isLoadingAuthors = true;
+  bool _isLoadingAlbums = true;
+  bool _isStartingSession = false;
+  bool _isCreating = false;
+  bool _isAttaching = false;
+  bool _isSkipping = false;
+  bool _isCancelling = false;
+  int? _selectedAlbumId;
+  int? _selectedTrackId;
+  String? _loadedItemKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialState();
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = _session;
+    final currentItem = session?.currentItem;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 960),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isLoadingState || _isLoadingAuthors || _isLoadingAlbums)
+                  const LinearProgressIndicator(),
+                if (session == null)
+                  _buildSessionStarter(context)
+                else if (session.isCompleted)
+                  _buildCompletedState(context, session)
+                else if (currentItem != null)
+                  _buildCurrentItemReview(context, session, currentItem)
+                else
+                  _TelegramInfoBanner(
+                    message:
+                        'YouTube import session is active but no current item is available.',
+                    actionLabel: 'Reload session',
+                    onAction: _refreshSession,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSessionStarter(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Start YouTube import',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Paste a YouTube or YouTube Music URL. The backend will resolve it into a one-by-one review session.',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _urlController,
+              enabled: !_isStartingSession,
+              decoration: const InputDecoration(
+                labelText: 'YouTube URL',
+                hintText: 'https://music.youtube.com/...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SelectionSummaryCard(
+              title: 'Release date cutoff',
+              value: _releaseDateCutoff == null
+                  ? 'No cutoff'
+                  : _formatDateOnly(_releaseDateCutoff!),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isStartingSession ? null : _pickReleaseDateCutoff,
+                  icon: const Icon(Icons.event_outlined),
+                  label: Text(
+                    _releaseDateCutoff == null
+                        ? 'Pick cutoff'
+                        : 'Change cutoff',
+                  ),
+                ),
+                if (_releaseDateCutoff != null)
+                  TextButton(
+                    onPressed: _isStartingSession
+                        ? null
+                        : () {
+                            setState(() {
+                              _releaseDateCutoff = null;
+                            });
+                          },
+                    child: const Text('Clear cutoff'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _replaceExisting,
+              onChanged: _isStartingSession
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _replaceExisting = value;
+                      });
+                    },
+              title: const Text('Replace active session'),
+              subtitle: const Text(
+                'If a YouTube import session is already active, replace it immediately.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: _isStartingSession ? null : _startSession,
+                  icon: const Icon(Icons.ondemand_video),
+                  label: Text(
+                    _isStartingSession ? 'Starting...' : 'Start import',
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: _isLoadingState ? null : _refreshSession,
+                  child: const Text('Refresh'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompletedState(
+    BuildContext context,
+    YouTubeImportSession session,
+  ) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Import completed',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            _SelectionSummaryCard(
+              title: 'Source',
+              value:
+                  '${_humanizeSourceType(session.sourceType)}\n${session.sourceUrl}',
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _SelectionSummaryCard(
+                  title: 'Saved',
+                  value: '${session.progress.saved}',
+                ),
+                _SelectionSummaryCard(
+                  title: 'Skipped',
+                  value: '${session.progress.skipped}',
+                ),
+                _SelectionSummaryCard(
+                  title: 'Processed',
+                  value:
+                      '${session.progress.processed}/${session.progress.total}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: _isCancelling ? null : _clearCompletedSession,
+              child: Text(_isCancelling ? 'Clearing...' : 'Clear session'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentItemReview(
+    BuildContext context,
+    YouTubeImportSession session,
+    YouTubeCurrentImportItem item,
+  ) {
+    final selectedAlbum = _selectedAlbum;
+    final exactSuggestion = _findExactSuggestion(item);
+    final selectedTrack = _selectedTrack;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Current YouTube item',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _SelectionSummaryCard(
+                      title: 'Source type',
+                      value: _humanizeSourceType(item.sourceType),
+                    ),
+                    _SelectionSummaryCard(
+                      title: 'Progress',
+                      value:
+                          '${session.progress.processed}/${session.progress.total}',
+                    ),
+                    _SelectionSummaryCard(
+                      title: 'Remaining',
+                      value: '${session.progress.remaining}',
+                    ),
+                    _SelectionSummaryCard(
+                      title: 'Saved',
+                      value: '${session.progress.saved}',
+                    ),
+                    _SelectionSummaryCard(
+                      title: 'Skipped',
+                      value: '${session.progress.skipped}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (exactSuggestion != null) ...[
+                  _buildExactMatchBanner(context, exactSuggestion),
+                  const SizedBox(height: 16),
+                ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SelectionSummaryCard(
+                            title: 'Source URL',
+                            value: item.sourceUrl,
+                          ),
+                          const SizedBox(height: 12),
+                          _SelectionSummaryCard(
+                            title: 'Original URL',
+                            value: item.originalSourceUrl,
+                          ),
+                          const SizedBox(height: 12),
+                          _SelectionSummaryCard(
+                            title: 'Parsed title',
+                            value: item.parsedTitle,
+                          ),
+                          const SizedBox(height: 12),
+                          _SelectionSummaryCard(
+                            title: 'Parsed authors',
+                            value: item.parsedAuthorNames.isEmpty
+                                ? 'No parsed authors'
+                                : item.parsedAuthorNames.join(', '),
+                          ),
+                          const SizedBox(height: 12),
+                          _SelectionSummaryCard(
+                            title: 'Parsed album',
+                            value: item.parsedAlbumTitle ?? 'No parsed album',
+                          ),
+                          const SizedBox(height: 12),
+                          _SelectionSummaryCard(
+                            title: 'Parsed release date',
+                            value: item.parsedReleaseDate == null
+                                ? 'No parsed release date'
+                                : _formatDateTime(item.parsedReleaseDate!),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (item.coverImageUrl != null) ...[
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 220,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Cover image',
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: AspectRatio(
+                                aspectRatio: 1,
+                                child: Image.network(
+                                  item.coverImageUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'Failed to load cover',
+                                        ),
+                                      ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (item.durationSeconds != null) ...[
+                  const SizedBox(height: 12),
+                  Text('Duration: ${_formatDuration(item.durationSeconds!)}'),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildSuggestionsSection(context, item),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add as new',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _titleController,
+                  enabled: !_isBusy,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                AlbumPickerField(
+                  albums: _availableAlbums,
+                  selectedAlbum: selectedAlbum,
+                  isLoading: _isLoadingAlbums,
+                  enabled: !_isBusy,
+                  onSelected: (album) {
+                    setState(() {
+                      _selectedAlbumId = album.id;
+                    });
+                  },
+                  onCreateNew: () => _openCreateAlbumScreen(
+                    initialTitle: item.parsedAlbumTitle,
+                    initialReleaseDate: item.parsedReleaseDate,
+                  ),
+                ),
+                if (item.parsedAlbumTitle != null &&
+                    item.parsedAlbumTitle!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      Text(
+                        'Parsed album: ${item.parsedAlbumTitle!}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      TextButton(
+                        onPressed: _isBusy
+                            ? null
+                            : () => _searchParsedAlbum(item),
+                        child: const Text('Search parsed album'),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _SelectionSummaryCard(
+                  title: 'Album position',
+                  value: selectedAlbum == null
+                      ? 'Select an album'
+                      : 'Track will be added as item ${selectedAlbum.trackIds.length + 1}',
+                ),
+                const SizedBox(height: 16),
+                _AuthorPickerField(
+                  authors: _selectedAuthors,
+                  isLoading: _isLoadingAuthors,
+                  onTap: _isBusy ? null : _showAuthorPicker,
+                  onRemove: _isBusy ? null : _removeAuthor,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _isBusy ? null : _addAsNew,
+                  child: Text(_isCreating ? 'Adding...' : 'Add as new'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Attach to existing',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                _SelectionSummaryCard(
+                  title: 'Selected local track',
+                  value: selectedTrack == null
+                      ? 'No track selected'
+                      : _trackSummary(selectedTrack),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    FilledButton.tonal(
+                      onPressed: _isBusy ? null : _selectExistingTrack,
+                      child: const Text('Select existing track'),
+                    ),
+                    if (selectedTrack != null)
+                      TextButton(
+                        onPressed: _isBusy
+                            ? null
+                            : () {
+                                setState(() {
+                                  _selectedTrackId = null;
+                                });
+                              },
+                        child: const Text('Clear selection'),
+                      ),
+                    FilledButton(
+                      onPressed: _isBusy || selectedTrack == null
+                          ? null
+                          : _attachSelectedTrack,
+                      child: Text(_isAttaching ? 'Attaching...' : 'Attach'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        if (_isBusy) const LinearProgressIndicator(),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(
+              onPressed: _isBusy ? null : _cancelSession,
+              child: const Text('Cancel session'),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.tonal(
+              onPressed: _isBusy ? null : _skipAndNext,
+              child: const Text('Skip'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExactMatchBanner(
+    BuildContext context,
+    YouTubeImportSuggestion suggestion,
+  ) {
+    final matchedTrack = _suggestedTracksById[suggestion.trackId];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Exact source match found',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            matchedTrack == null
+                ? 'Track #${suggestion.trackId} already has this source.'
+                : _trackSummary(matchedTrack),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _isBusy
+                ? null
+                : () => _attachToTrackId(suggestion.trackId),
+            child: const Text('Attach exact source match'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionsSection(
+    BuildContext context,
+    YouTubeCurrentImportItem item,
+  ) {
+    final suggestions = [...item.suggestions]
+      ..sort((left, right) {
+        if (left.isExactSourceMatch == right.isExactSourceMatch) {
+          return right.confidence.compareTo(left.confidence);
+        }
+        return left.isExactSourceMatch ? -1 : 1;
+      });
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Suggestions', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (suggestions.isEmpty)
+              const Text('No suggestions for this item.')
+            else
+              Column(
+                children: suggestions
+                    .map(
+                      (suggestion) => _buildSuggestionTile(context, suggestion),
+                    )
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionTile(
+    BuildContext context,
+    YouTubeImportSuggestion suggestion,
+  ) {
+    final track = _suggestedTracksById[suggestion.trackId];
+    final confidencePercent = (suggestion.confidence * 100).toStringAsFixed(0);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Chip(
+                label: Text(
+                  suggestion.isExactSourceMatch
+                      ? 'Exact source match'
+                      : 'Possible track match',
+                ),
+              ),
+              Text('Track #${suggestion.trackId}'),
+              Text('Confidence $confidencePercent%'),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            track == null ? 'Loading track details...' : _trackSummary(track),
+          ),
+          if (suggestion.metadata.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SelectableText(formatJsonObject(suggestion.metadata)),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.tonal(
+                onPressed: _isBusy
+                    ? null
+                    : () => _attachToTrackId(suggestion.trackId),
+                child: const Text('Use suggestion'),
+              ),
+              TextButton(
+                onPressed: _isBusy
+                    ? null
+                    : () {
+                        setState(() {
+                          _selectedTrackId = suggestion.trackId;
+                        });
+                      },
+                child: const Text('Select for attach'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool get _isBusy =>
+      _isStartingSession ||
+      _isCreating ||
+      _isAttaching ||
+      _isSkipping ||
+      _isCancelling;
+
+  Future<void> _loadInitialState() async {
+    await _loadAuthors();
+    await _loadAlbums();
+    await _refreshSession();
+  }
+
+  Future<void> _refreshSession() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isLoadingState = true;
+    });
+
+    try {
+      final session = await context
+          .read<YouTubeImportRepository>()
+          .getCurrentSession();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _session = session;
+        _isLoadingState = false;
+      });
+      await _syncStateWithSession(session);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _session = null;
+        _isLoadingState = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _loadAuthors() async {
+    try {
+      final authors = await context.read<TracksStorage>().getAuthors();
+      if (!mounted) {
+        return;
+      }
+      authors.sort(
+        (left, right) => left.currentName.toLowerCase().compareTo(
+          right.currentName.toLowerCase(),
+        ),
+      );
+      setState(() {
+        _availableAuthors = authors;
+        _isLoadingAuthors = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingAuthors = false;
+      });
+      _showMessage('Failed to load authors: $error');
+    }
+  }
+
+  Future<void> _loadAlbums() async {
+    try {
+      final albums = await loadAllAlbums(context.read<TracksStorage>());
+      if (!mounted) {
+        return;
+      }
+      albums.sort(
+        (left, right) =>
+            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      );
+      setState(() {
+        _availableAlbums = albums;
+        if (_selectedAlbumId != null &&
+            !_availableAlbums.any((album) => album.id == _selectedAlbumId)) {
+          _selectedAlbumId = null;
+        }
+        _isLoadingAlbums = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoadingAlbums = false;
+      });
+      _showMessage('Failed to load albums: $error');
+    }
+  }
+
+  Future<void> _pickReleaseDateCutoff() async {
+    final now = DateTime.now();
+    final initialDate = _releaseDateCutoff ?? now;
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1970),
+      lastDate: DateTime(now.year + 20),
+    );
+    if (pickedDate == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _releaseDateCutoff = DateTime.utc(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        23,
+        59,
+        59,
+        999,
+      );
+    });
+  }
+
+  Future<void> _openCreateAlbumScreen({
+    String? initialTitle,
+    DateTime? initialReleaseDate,
+  }) async {
+    final savedAlbum = await Navigator.of(context).push<Album>(
+      MaterialPageRoute(
+        builder: (_) => EditAlbumScreen(
+          initialTitle: initialTitle,
+          initialReleaseDate: initialReleaseDate,
+        ),
+      ),
+    );
+
+    if (savedAlbum?.id == null || !mounted) {
+      return;
+    }
+
+    await _loadAlbums();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedAlbumId = savedAlbum!.id;
+    });
+  }
+
+  Future<void> _startSession() async {
+    final url = _urlController.text.trim();
+    if (url.isEmpty) {
+      _showMessage('YouTube URL is required.');
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isStartingSession = true;
+    });
+
+    final repository = context.read<YouTubeImportRepository>();
+
+    try {
+      final session = await repository.startSession(
+        url: url,
+        releaseDateCutoff: _releaseDateCutoff,
+        replaceExisting: _replaceExisting,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _session = session;
+        _isStartingSession = false;
+      });
+      await _syncStateWithSession(session);
+    } on HttpAppError catch (error) {
+      if (error.statusCode == 409 && !_replaceExisting) {
+        if (!mounted) {
+          return;
+        }
+        final shouldReplace = await showDialog<bool>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text('Replace active import session?'),
+              content: Text(
+                error.message.isEmpty
+                    ? 'There is already an active YouTube import session. Start a new one and replace it?'
+                    : error.message,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('No'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Replace'),
+                ),
+              ],
+            );
+          },
+        );
+
+        if (shouldReplace == true) {
+          try {
+            final session = await repository.startSession(
+              url: url,
+              releaseDateCutoff: _releaseDateCutoff,
+              replaceExisting: true,
+            );
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _replaceExisting = true;
+              _session = session;
+              _isStartingSession = false;
+            });
+            await _syncStateWithSession(session);
+            return;
+          } catch (replaceError) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _isStartingSession = false;
+            });
+            _showMessage(_errorMessageFrom(replaceError));
+            return;
+          }
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isStartingSession = false;
+      });
+      _showMessage(error.message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isStartingSession = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _syncStateWithSession(YouTubeImportSession? session) async {
+    if (!mounted) {
+      return;
+    }
+
+    final item = session?.currentItem;
+    if (item == null) {
+      setState(() {
+        _loadedItemKey = null;
+        _titleController.clear();
+        _selectedTrackId = null;
+        _selectedAlbumId = null;
+        _selectedAuthors.clear();
+        _suggestedTracksById.clear();
+      });
+      return;
+    }
+
+    final itemKey = '${item.videoId}:${item.sourceUrl}';
+    if (_loadedItemKey == itemKey) {
+      return;
+    }
+
+    final matchedAlbum = item.parsedAlbumTitle == null
+        ? null
+        : findBestMatchingAlbum(_availableAlbums, item.parsedAlbumTitle!);
+    final selectedAuthors = _resolveParsedAuthors(item.parsedAuthorNames);
+
+    setState(() {
+      _loadedItemKey = itemKey;
+      _titleController.text = item.parsedTitle;
+      _selectedTrackId = null;
+      _selectedAlbumId = matchedAlbum?.id;
+      _selectedAuthors
+        ..clear()
+        ..addAll(selectedAuthors);
+      _suggestedTracksById.clear();
+    });
+
+    await _loadSuggestionTracks(item.suggestions);
+  }
+
+  List<Author> _resolveParsedAuthors(List<String> parsedAuthorNames) {
+    final matches = <Author>[];
+    final seen = <String>{};
+
+    for (final rawName in parsedAuthorNames) {
+      final normalized = _normalizeName(rawName);
+      if (normalized.isEmpty || seen.contains(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      final existing = _findAvailableAuthorByNormalizedName(normalized);
+      matches.add(existing ?? Author(currentName: rawName.trim()));
+    }
+
+    return matches;
+  }
+
+  Future<void> _loadSuggestionTracks(
+    List<YouTubeImportSuggestion> suggestions,
+  ) async {
+    final trackIds = suggestions
+        .map((suggestion) => suggestion.trackId)
+        .toSet();
+    final storage = context.read<TracksStorage>();
+    final loaded = <int, Track>{};
+
+    for (final trackId in trackIds) {
+      if (trackId <= 0) {
+        continue;
+      }
+      try {
+        loaded[trackId] = await storage.getTrack(trackId);
+      } catch (_) {}
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _suggestedTracksById
+        ..clear()
+        ..addAll(loaded);
+    });
+  }
+
+  Future<void> _searchParsedAlbum(YouTubeCurrentImportItem item) async {
+    final parsedAlbumTitle = item.parsedAlbumTitle;
+    if (parsedAlbumTitle == null || parsedAlbumTitle.isEmpty) {
+      return;
+    }
+
+    final result = await showAlbumPickerDialog(
+      context,
+      availableAlbums: _availableAlbums,
+      selectedAlbumId: _selectedAlbumId,
+      metadataAlbumTitle: parsedAlbumTitle,
+      onCreateNew: () => _openCreateAlbumScreen(
+        initialTitle: parsedAlbumTitle,
+        initialReleaseDate: item.parsedReleaseDate,
+      ),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    if (result case AlbumPickerDialogSelection(album: final album)) {
+      setState(() {
+        _selectedAlbumId = album.id;
+      });
+    }
+  }
+
+  Future<void> _showAuthorPicker() async {
+    final pickedAuthors = await showDialog<List<Author>>(
+      context: context,
+      builder: (context) => _AuthorPickerDialog(
+        availableAuthors: _availableAuthors,
+        initiallySelectedAuthors: _selectedAuthors,
+      ),
+    );
+
+    if (pickedAuthors == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedAuthors
+        ..clear()
+        ..addAll(pickedAuthors);
+    });
+  }
+
+  Future<void> _selectExistingTrack() async {
+    final selectedTrack = await showDialog<Track>(
+      context: context,
+      builder: (context) => const _TrackPickerDialog(),
+    );
+
+    if (selectedTrack?.id == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedTrackId = selectedTrack!.id;
+      _suggestedTracksById[selectedTrack.id!] = selectedTrack;
+    });
+  }
+
+  Future<void> _addAsNew() async {
+    final currentItem = _session?.currentItem;
+    final selectedAlbum = _selectedAlbum;
+    final title = _titleController.text.trim();
+
+    if (currentItem == null) {
+      _showMessage('No YouTube item is loaded.');
+      return;
+    }
+    if (title.isEmpty) {
+      _showMessage('Name is required.');
+      return;
+    }
+    if (selectedAlbum?.id == null) {
+      _showMessage('Select an album first.');
+      return;
+    }
+    if (_selectedAuthors.isEmpty) {
+      _showMessage('Select at least one author.');
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isCreating = true;
+    });
+
+    final repository = context.read<YouTubeImportRepository>();
+
+    try {
+      final authorIds = await _resolveAuthorIds();
+      final response = await repository.addCurrentAsNew(
+        name: title,
+        authorIds: authorIds,
+        albumId: selectedAlbum!.id!,
+        albumOrder: selectedAlbum.trackIds.length,
+      );
+
+      await _loadAlbums();
+
+      if (!mounted) {
+        return;
+      }
+
+      context.read<TrackListBloc>().add(const LoadTracks());
+      setState(() {
+        _session = response.session;
+        _isCreating = false;
+      });
+      await _syncStateWithSession(response.session);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isCreating = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _attachSelectedTrack() async {
+    final trackId = _selectedTrackId;
+    if (trackId == null || trackId <= 0) {
+      _showMessage('Select a local track first.');
+      return;
+    }
+    await _attachToTrackId(trackId);
+  }
+
+  Future<void> _attachToTrackId(int trackId) async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isAttaching = true;
+      _selectedTrackId = trackId;
+    });
+
+    try {
+      final response = await context
+          .read<YouTubeImportRepository>()
+          .attachCurrent(trackId: trackId);
+      if (!mounted) {
+        return;
+      }
+      context.read<TrackListBloc>().add(const LoadTracks());
+      setState(() {
+        _session = response.session;
+        _isAttaching = false;
+      });
+      await _syncStateWithSession(response.session);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isAttaching = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _skipAndNext() async {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSkipping = true;
+    });
+
+    try {
+      final updatedSession = await context
+          .read<YouTubeImportRepository>()
+          .skipCurrent();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _session = updatedSession;
+        _isSkipping = false;
+      });
+      await _syncStateWithSession(updatedSession);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSkipping = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _cancelSession() async {
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancel YouTube import session?'),
+          content: const Text(
+            'This will stop the current YouTube import session on the backend.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('No'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Cancel session'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldCancel != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isCancelling = true;
+    });
+
+    try {
+      await context.read<YouTubeImportRepository>().cancelCurrentSession();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _session = null;
+        _loadedItemKey = null;
+        _titleController.clear();
+        _selectedTrackId = null;
+        _selectedAlbumId = null;
+        _selectedAuthors.clear();
+        _suggestedTracksById.clear();
+        _isCancelling = false;
+      });
+      _showMessage('YouTube import session cancelled.');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isCancelling = false;
+      });
+      _showMessage(_errorMessageFrom(error));
+    }
+  }
+
+  Future<void> _clearCompletedSession() async {
+    await _cancelSession();
+  }
+
+  Future<List<int>> _resolveAuthorIds() async {
+    final storage = context.read<TracksStorage>();
+    final resolvedAuthorIds = <int>[];
+    final createdAuthors = <Author>[];
+
+    for (final author in _selectedAuthors) {
+      final existingId = author.id;
+      if (existingId != null) {
+        resolvedAuthorIds.add(existingId);
+        continue;
+      }
+
+      final createdAuthor = await storage.createAuthor(author);
+      resolvedAuthorIds.add(createdAuthor.id!);
+      createdAuthors.add(createdAuthor);
+    }
+
+    if (createdAuthors.isNotEmpty && mounted) {
+      setState(() {
+        final authorIdsByName = {
+          for (final author in _availableAuthors)
+            _normalizeName(author.currentName): author,
+          for (final author in createdAuthors)
+            _normalizeName(author.currentName): author,
+        };
+        _availableAuthors = authorIdsByName.values.toList()
+          ..sort(
+            (left, right) => left.currentName.toLowerCase().compareTo(
+              right.currentName.toLowerCase(),
+            ),
+          );
+        for (var index = 0; index < _selectedAuthors.length; index++) {
+          final normalized = _normalizeName(
+            _selectedAuthors[index].currentName,
+          );
+          final replacement = authorIdsByName[normalized];
+          if (replacement != null) {
+            _selectedAuthors[index] = replacement;
+          }
+        }
+      });
+    }
+
+    return resolvedAuthorIds;
+  }
+
+  void _removeAuthor(Author author) {
+    setState(() {
+      _selectedAuthors.remove(author);
+    });
+  }
+
+  String _normalizeName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  Author? _findAvailableAuthorByNormalizedName(String normalizedName) {
+    for (final author in _availableAuthors) {
+      if (_normalizeName(author.currentName) == normalizedName) {
+        return author;
+      }
+    }
+    return null;
+  }
+
+  Album? get _selectedAlbum {
+    for (final album in _availableAlbums) {
+      if (album.id == _selectedAlbumId) {
+        return album;
+      }
+    }
+    return null;
+  }
+
+  Track? get _selectedTrack {
+    final trackId = _selectedTrackId;
+    if (trackId == null) {
+      return null;
+    }
+    return _suggestedTracksById[trackId];
+  }
+
+  YouTubeImportSuggestion? _findExactSuggestion(YouTubeCurrentImportItem item) {
+    for (final suggestion in item.suggestions) {
+      if (suggestion.isExactSourceMatch) {
+        return suggestion;
+      }
+    }
+    return null;
+  }
+
+  String _trackSummary(Track track) {
+    final authors = track.authors
+        .map((author) => author.currentName)
+        .join(', ');
+    return [
+      '#${track.id ?? 'unknown'} ${track.name}',
+      if (authors.isNotEmpty) 'Authors: $authors',
+      'Album #${track.albumId}',
+    ].join('\n');
+  }
+
+  String _humanizeSourceType(String sourceType) {
+    switch (sourceType) {
+      case 'track':
+        return 'Track';
+      case 'playlist':
+        return 'Playlist';
+      case 'artist':
+        return 'Artist';
+      default:
+        return sourceType;
+    }
+  }
+
+  String _errorMessageFrom(Object error) {
+    if (error is HttpAppError) {
+      return error.message;
+    }
+    if (error is FormatException) {
+      return error.message;
+    }
+    return error.toString();
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
 class _StartMessageIdParseResult {
   const _StartMessageIdParseResult({this.value, this.errorMessage});
 
   final int? value;
   final String? errorMessage;
+}
+
+class _TrackPickerDialog extends StatefulWidget {
+  const _TrackPickerDialog();
+
+  @override
+  State<_TrackPickerDialog> createState() => _TrackPickerDialogState();
+}
+
+class _TrackPickerDialogState extends State<_TrackPickerDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  List<Track> _tracks = const [];
+  bool _isLoading = true;
+  String? _errorMessage;
+  int _requestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _searchFocusNode.requestFocus();
+      }
+    });
+    _loadTracks();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Select local track'),
+      content: SizedBox(
+        width: 640,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              decoration: const InputDecoration(
+                labelText: 'Search tracks',
+                hintText: 'Title or ID',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (_) => _loadTracks(),
+            ),
+            const SizedBox(height: 12),
+            if (_errorMessage != null) ...[
+              Text(
+                _errorMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (_isLoading) const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 420),
+              child: _tracks.isEmpty && !_isLoading
+                  ? const Center(child: Text('No tracks match the search.'))
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _tracks.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final track = _tracks[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(track.name),
+                          subtitle: Text(
+                            [
+                              '#${track.id ?? 'unknown'}',
+                              if (track.authors.isNotEmpty)
+                                track.authors
+                                    .map((author) => author.currentName)
+                                    .join(', '),
+                              'Album #${track.albumId}',
+                            ].join('  •  '),
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: track.id == null
+                              ? null
+                              : () => Navigator.of(context).pop(track),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _loadTracks() async {
+    final requestId = ++_requestId;
+    final query = _searchController.text.trim();
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await context.read<TracksStorage>().getTracks(
+        page: 1,
+        pageSize: 20,
+        query: query.isEmpty ? null : query,
+      );
+      if (!mounted || requestId != _requestId) {
+        return;
+      }
+      setState(() {
+        _tracks = result.tracks;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted || requestId != _requestId) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to load tracks: $error';
+      });
+    }
+  }
 }
 
 class _TelegramInfoBanner extends StatelessWidget {
@@ -2641,6 +4198,22 @@ String _formatBytes(int bytes) {
     return '${(bytes / 1024).toStringAsFixed(1)} KB';
   }
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+String _formatDateOnly(DateTime date) {
+  final normalized = date.toUtc();
+  return '${normalized.year.toString().padLeft(4, '0')}-${normalized.month.toString().padLeft(2, '0')}-${normalized.day.toString().padLeft(2, '0')}';
+}
+
+String _formatDateTime(DateTime dateTime) {
+  final normalized = dateTime.toUtc();
+  return '${_formatDateOnly(normalized)} ${normalized.hour.toString().padLeft(2, '0')}:${normalized.minute.toString().padLeft(2, '0')} UTC';
+}
+
+String _formatDuration(int durationSeconds) {
+  final minutes = durationSeconds ~/ 60;
+  final seconds = durationSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _SelectionSummaryCard extends StatelessWidget {
