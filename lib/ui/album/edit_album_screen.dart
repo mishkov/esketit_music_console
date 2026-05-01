@@ -258,51 +258,41 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                       message: 'No tracks attached to this album yet.',
                     )
                   else
-                    ..._tracks.asMap().entries.map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Card(
-                          margin: EdgeInsets.zero,
-                          child: ListTile(
-                            title: Text(entry.value.name),
-                            subtitle: Text(
-                              entry.value.authors
-                                  .map((author) => author.currentName)
-                                  .join(', '),
-                            ),
-                            leading: CircleAvatar(
-                              child: Text('${entry.key + 1}'),
-                            ),
-                            trailing: Wrap(
-                              spacing: 8,
-                              children: [
-                                IconButton(
-                                  onPressed: _isSaving || entry.key == 0
-                                      ? null
-                                      : () => _moveTrack(
-                                          entry.key,
-                                          entry.key - 1,
-                                        ),
-                                  icon: const Icon(Icons.arrow_upward),
-                                  tooltip: 'Move up',
+                    ReorderableListView.builder(
+                      shrinkWrap: true,
+                      buildDefaultDragHandles: false,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _tracks.length,
+                      onReorder: _isSaving ? (_, _) {} : _reorderTracks,
+                      itemBuilder: (context, index) {
+                        final track = _tracks[index];
+                        return Padding(
+                          key: ValueKey(track.id ?? '${track.name}-$index'),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Card(
+                            margin: EdgeInsets.zero,
+                            child: ListTile(
+                              title: Text(track.name),
+                              subtitle: Text(
+                                track.authors
+                                    .map((author) => author.currentName)
+                                    .join(', '),
+                              ),
+                              leading: CircleAvatar(
+                                child: Text('${index + 1}'),
+                              ),
+                              trailing: ReorderableDragStartListener(
+                                index: index,
+                                enabled: !_isSaving,
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(Icons.drag_handle),
                                 ),
-                                IconButton(
-                                  onPressed:
-                                      _isSaving ||
-                                          entry.key == _tracks.length - 1
-                                      ? null
-                                      : () => _moveTrack(
-                                          entry.key,
-                                          entry.key + 1,
-                                        ),
-                                  icon: const Icon(Icons.arrow_downward),
-                                  tooltip: 'Move down',
-                                ),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
                   const SizedBox(height: 24),
                   Text(
@@ -742,11 +732,14 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     }
   }
 
-  void _moveTrack(int fromIndex, int toIndex) {
+  void _reorderTracks(int oldIndex, int newIndex) {
     setState(() {
       final updatedTracks = List<Track>.from(_tracks);
-      final item = updatedTracks.removeAt(fromIndex);
-      updatedTracks.insert(toIndex, item);
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final item = updatedTracks.removeAt(oldIndex);
+      updatedTracks.insert(newIndex, item);
       _tracks = updatedTracks;
     });
   }
