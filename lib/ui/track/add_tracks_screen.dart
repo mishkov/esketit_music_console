@@ -5,19 +5,19 @@ import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
-import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_import_models.dart';
 import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/domain/track_metadata_validation.dart';
 import 'package:esketit_music_console/domain/track_source_metadata.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
-import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
+import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_import_models.dart';
 import 'package:esketit_music_console/ui/album/album_picker.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
+import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/track/track_metadata_editor.dart';
-import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/browser_file_download.dart';
+import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/mp3_metadata.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
@@ -4236,7 +4236,7 @@ class _SelectionSummaryCard extends StatelessWidget {
         children: [
           Text(title, style: Theme.of(context).textTheme.labelMedium),
           const SizedBox(height: 4),
-          Text(value, style: Theme.of(context).textTheme.bodyLarge),
+          SelectableText(value, style: Theme.of(context).textTheme.bodyLarge),
         ],
       ),
     );
