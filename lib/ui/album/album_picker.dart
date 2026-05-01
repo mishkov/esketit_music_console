@@ -1,5 +1,6 @@
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 typedef AlbumPickerCreateNew = Future<void> Function();
 
@@ -122,15 +123,20 @@ class _AlbumPickerDialog extends StatefulWidget {
 }
 
 class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
+  static const _recentAlbumIdsStorageKey = 'recent_album_picker_ids_v1';
+
   late final TextEditingController _searchController = TextEditingController(
     text: widget.metadataAlbumTitle ?? '',
   );
   final FocusNode _searchFocusNode = FocusNode();
   late String _searchQuery = _searchController.text.trim().toLowerCase();
+  List<int> _recentAlbumIds = const [];
 
   @override
   void initState() {
     super.initState();
+
+    _loadRecentAlbums();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _searchFocusNode.requestFocus();
@@ -148,6 +154,7 @@ class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
   @override
   Widget build(BuildContext context) {
     final filteredAlbums = _filteredAlbums;
+    final recentAlbums = _recentAlbums;
 
     return AlertDialog(
       title: Text(
@@ -155,8 +162,8 @@ class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
       ),
       content: SizedBox(
         width: 560,
+        height: 520,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (widget.metadataAlbumTitle != null) ...[
@@ -194,40 +201,30 @@ class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
               style: Theme.of(context).textTheme.labelMedium,
             ),
             const SizedBox(height: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 360),
-              child: filteredAlbums.isEmpty
+            Expanded(
+              child: filteredAlbums.isEmpty && recentAlbums.isEmpty
                   ? const Center(child: Text('No albums match the search.'))
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: filteredAlbums.length,
-                      separatorBuilder: (context, index) =>
-                          const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final album = filteredAlbums[index];
-                        final isSelected = album.id == widget.selectedAlbumId;
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          selected: isSelected,
-                          leading: CircleAvatar(
-                            child: Text(
-                              album.title.isEmpty
-                                  ? '?'
-                                  : album.title.characters.first.toUpperCase(),
-                            ),
+                  : ListView(
+                      children: [
+                        if (recentAlbums.isNotEmpty) ...[
+                          Text(
+                            'Last selected albums',
+                            style: Theme.of(context).textTheme.labelLarge,
                           ),
-                          title: Text(album.title),
-                          subtitle: Text(_buildSubtitle(album)),
-                          trailing: isSelected
-                              ? const Icon(Icons.check_circle)
-                              : const Icon(Icons.chevron_right),
-                          onTap: album.id == null
-                              ? null
-                              : () => Navigator.of(
-                                  context,
-                                ).pop(AlbumPickerDialogSelection(album)),
-                        );
-                      },
+                          const SizedBox(height: 8),
+                          ...recentAlbums.map(
+                            (album) => _buildAlbumTile(album, isRecent: true),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        if (filteredAlbums.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Text('No albums match the search.'),
+                          )
+                        else
+                          ..._buildAllAlbumTiles(filteredAlbums),
+                      ],
                     ),
             ),
           ],
@@ -257,6 +254,121 @@ class _AlbumPickerDialogState extends State<_AlbumPickerDialog> {
           authors.contains(_searchQuery) ||
           id.contains(_searchQuery);
     }).toList();
+  }
+
+  List<Album> get _recentAlbums {
+    if (_recentAlbumIds.isEmpty) {
+      return const [];
+    }
+
+    final albumsById = {
+      for (final album in widget.availableAlbums)
+        if (album.id != null) album.id!: album,
+    };
+    final filteredRecentAlbums = <Album>[];
+    for (final albumId in _recentAlbumIds) {
+      final album = albumsById[albumId];
+      if (album == null) {
+        continue;
+      }
+      if (_searchQuery.isNotEmpty) {
+        final title = album.title.toLowerCase();
+        final authors = album.authors
+            .map((author) => author.currentName.toLowerCase())
+            .join(' ');
+        if (!title.contains(_searchQuery) &&
+            !authors.contains(_searchQuery) &&
+            !(album.id?.toString().contains(_searchQuery) ?? false)) {
+          continue;
+        }
+      }
+      filteredRecentAlbums.add(album);
+    }
+    return filteredRecentAlbums;
+  }
+
+  Widget _buildAlbumTile(Album album, {bool isRecent = false}) {
+    final isSelected = album.id == widget.selectedAlbumId;
+    return ListTile(
+      key: ValueKey(
+        isRecent
+            ? 'album-picker-recent-${album.id}'
+            : 'album-picker-all-${album.id}',
+      ),
+      contentPadding: EdgeInsets.zero,
+      selected: isSelected,
+      leading: CircleAvatar(
+        child: Text(
+          album.title.isEmpty
+              ? '?'
+              : album.title.characters.first.toUpperCase(),
+        ),
+      ),
+      title: Text(album.title),
+      subtitle: Text(_buildSubtitle(album)),
+      trailing: isSelected
+          ? const Icon(Icons.check_circle)
+          : const Icon(Icons.chevron_right),
+      onTap: album.id == null
+          ? null
+          : () async {
+              await _saveRecentAlbums(album.id!);
+              if (!mounted) {
+                return;
+              }
+              Navigator.of(context).pop(AlbumPickerDialogSelection(album));
+            },
+    );
+  }
+
+  List<Widget> _buildAllAlbumTiles(List<Album> albums) {
+    return [
+      for (var index = 0; index < albums.length; index++) ...[
+        if (index > 0) const Divider(height: 1),
+        _buildAlbumTile(albums[index]),
+      ],
+    ];
+  }
+
+  Future<void> _loadRecentAlbums() async {
+    final preferences = await SharedPreferences.getInstance();
+    final storedRecentAlbumIds =
+        preferences.getStringList(_recentAlbumIdsStorageKey) ?? const [];
+    final availableAlbumIds = {
+      for (final album in widget.availableAlbums)
+        if (album.id != null) album.id!,
+    };
+    final recentAlbumIds = storedRecentAlbumIds
+        .map(int.tryParse)
+        .whereType<int>()
+        .where(availableAlbumIds.contains)
+        .take(5)
+        .toList();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _recentAlbumIds = recentAlbumIds;
+    });
+  }
+
+  Future<void> _saveRecentAlbums(int albumId) async {
+    final availableAlbumIds = {
+      for (final album in widget.availableAlbums)
+        if (album.id != null) album.id!,
+    };
+    final recentAlbumIds = <int>[
+      albumId,
+      ..._recentAlbumIds.where((recentAlbumId) => recentAlbumId != albumId),
+    ].where(availableAlbumIds.contains).take(5).toList();
+
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      _recentAlbumIdsStorageKey,
+      recentAlbumIds.map((id) => id.toString()).toList(),
+    );
+    _recentAlbumIds = recentAlbumIds;
   }
 
   String _buildSubtitle(Album album) {
