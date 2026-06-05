@@ -40,16 +40,16 @@ Track parseTrackJson(
 String songDownloadUrl({required Uri baseUri, required String songReference}) {
   final trimmed = songReference.trim();
   if (trimmed.isEmpty) {
-    return baseUri.resolve('/songs/').toString();
+    return baseUri.resolve('/api/songs/').toString();
   }
   final uri = Uri.tryParse(trimmed);
   if (uri != null && uri.hasScheme) {
     return trimmed;
   }
-  if (trimmed.startsWith('/songs/')) {
+  if (trimmed.startsWith('/api/songs/')) {
     return baseUri.resolve(trimmed).toString();
   }
-  return baseUri.resolve('/songs/${Uri.encodeComponent(trimmed)}').toString();
+  return baseUri.resolve('/api/songs/${Uri.encodeComponent(trimmed)}').toString();
 }
 
 String songFileName(String? songReference) {
@@ -65,8 +65,8 @@ String songFileName(String? songReference) {
     }
     return _decodeUriComponentIfPossible(uri.pathSegments.last);
   }
-  if (trimmed.startsWith('/songs/')) {
-    final withoutPrefix = trimmed.substring('/songs/'.length);
+  if (trimmed.startsWith('/api/songs/')) {
+    final withoutPrefix = trimmed.substring('/api/songs/'.length);
     return _decodeUriComponentIfPossible(withoutPrefix);
   }
   return _decodeUriComponentIfPossible(trimmed);

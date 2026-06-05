@@ -223,7 +223,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     final uploaded = await _uploadBinaryFile(
       path: '/album-covers',
       file: file,
-      fallbackGetPathPrefix: '/album-covers/',
+      fallbackGetPathPrefix: '/api/album-covers/',
     );
     return uploaded.name;
   }
@@ -241,9 +241,9 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     }
 
     final normalizedPath = _normalizeRelativeMediaPath(
-      trimmedPath.startsWith('/album-covers/')
+      trimmedPath.startsWith('/api/album-covers/')
           ? trimmedPath
-          : '/album-covers/$trimmedPath',
+          : '/api/album-covers/$trimmedPath',
     );
     return _baseUri.resolve(normalizedPath).toString();
   }
@@ -380,7 +380,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     final uploadedSong = await _uploadBinaryFile(
       path: '/songs',
       file: track.file,
-      fallbackGetPathPrefix: '/songs/',
+      fallbackGetPathPrefix: '/api/songs/',
     );
     final authorIds = await _resolveAuthorIds(track.authors);
 
@@ -438,7 +438,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     final uploadedSong = await _uploadBinaryFile(
       path: '/songs',
       file: track.file,
-      fallbackGetPathPrefix: '/songs/',
+      fallbackGetPathPrefix: '/api/songs/',
     );
     final authorIds = await _resolveAuthorIds(track.authors);
 
