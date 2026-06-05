@@ -229,6 +229,26 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   @override
+  String resolveAlbumCoverUrl(String coverImagePath) {
+    final trimmedPath = coverImagePath.trim();
+    if (trimmedPath.isEmpty) {
+      return '';
+    }
+
+    final absoluteUri = Uri.tryParse(trimmedPath);
+    if (absoluteUri != null && absoluteUri.hasScheme) {
+      return absoluteUri.toString();
+    }
+
+    final normalizedPath = _normalizeRelativeMediaPath(
+      trimmedPath.startsWith('/album-covers/')
+          ? trimmedPath
+          : '/album-covers/$trimmedPath',
+    );
+    return _baseUri.resolve(normalizedPath).toString();
+  }
+
+  @override
   Future<List<AlbumCoverSuggestion>> searchAlbumCoverSuggestions(
     String query,
   ) async {

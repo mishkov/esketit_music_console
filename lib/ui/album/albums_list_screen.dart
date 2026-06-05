@@ -99,25 +99,15 @@ class _AlbumsListScreenState extends State<AlbumsListScreen> {
                         const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final album = _albums[index];
-                      return Card(
-                        margin: EdgeInsets.zero,
-                        child: ListTile(
-                          title: Text(album.title),
-                          subtitle: Text(
-                            [
-                              album.isPublished ? 'Published' : 'Draft',
-                              'Tracks: ${album.trackIds.length}',
-                              if (album.authors.isNotEmpty)
-                                'Authors: ${album.authors.map((author) => author.currentName).join(', ')}',
-                              'Released: ${_formatDate(album.releaseDate)}',
-                            ].join('\n'),
-                          ),
-                          isThreeLine: true,
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: album.id == null
-                              ? null
-                              : () => _openAlbum(album.id!),
-                        ),
+                      return _AlbumCard(
+                        album: album,
+                        coverImageUrl: context
+                            .read<TracksStorage>()
+                            .resolveAlbumCoverUrl(album.coverImagePath),
+                        releaseDateLabel: _formatDate(album.releaseDate),
+                        onTap: album.id == null
+                            ? null
+                            : () => _openAlbum(album.id!),
                       );
                     },
                   ),
@@ -128,6 +118,7 @@ class _AlbumsListScreenState extends State<AlbumsListScreen> {
             totalPages: _totalPages,
             totalItems: _totalItems,
             isLoading: _isLoading,
+            onPageSelected: _goToPage,
             onPrevious: _page > 1 ? () => _goToPage(_page - 1) : null,
             onNext: _page < _totalPages ? () => _goToPage(_page + 1) : null,
           ),
@@ -259,6 +250,171 @@ class _AlbumsListScreenState extends State<AlbumsListScreen> {
   }
 }
 
+class _AlbumCard extends StatelessWidget {
+  const _AlbumCard({
+    required this.album,
+    required this.coverImageUrl,
+    required this.releaseDateLabel,
+    this.onTap,
+  });
+
+  final Album album;
+  final String coverImageUrl;
+  final String releaseDateLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final authorNames = album.authors
+        .map((author) => author.currentName.trim())
+        .where((name) => name.isNotEmpty)
+        .join(', ');
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AlbumCover(imageUrl: coverImageUrl),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          album.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        _AlbumTag(
+                          label: album.isPublished ? 'Published' : 'Draft',
+                        ),
+                        _AlbumTag(label: '${album.trackIds.length} tracks'),
+                        _AlbumTag(label: releaseDateLabel),
+                      ],
+                    ),
+                    if (authorNames.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      RichText(
+                        text: TextSpan(
+                          style: Theme.of(context).textTheme.bodyMedium,
+                          children: [
+                            const TextSpan(text: 'Author: '),
+                            TextSpan(
+                              text: authorNames,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.chevron_right,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumTag extends StatelessWidget {
+  const _AlbumTag({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSecondaryContainer,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumCover extends StatelessWidget {
+  const _AlbumCover({required this.imageUrl});
+
+  final String imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(
+          Icons.album_rounded,
+          size: 32,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 70.4,
+        height: 70.4,
+        child: imageUrl.isEmpty
+            ? placeholder
+            : Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => placeholder,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) {
+                    return child;
+                  }
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      placeholder,
+                      const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
 class _FiltersSection extends StatelessWidget {
   const _FiltersSection({
     required this.queryController,
@@ -327,6 +483,7 @@ class _FiltersSection extends StatelessWidget {
           width: 220,
           child: DropdownButtonFormField<bool?>(
             initialValue: publishedFilter,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Status',
               border: OutlineInputBorder(),
@@ -541,6 +698,7 @@ class _PaginationSection extends StatelessWidget {
     required this.totalPages,
     required this.totalItems,
     required this.isLoading,
+    required this.onPageSelected,
     required this.onPrevious,
     required this.onNext,
   });
@@ -549,28 +707,64 @@ class _PaginationSection extends StatelessWidget {
   final int totalPages;
   final int totalItems;
   final bool isLoading;
+  final ValueChanged<int> onPageSelected;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final currentPage = totalPages == 0
+        ? 1
+        : page < 1
+        ? 1
+        : page > totalPages
+        ? totalPages
+        : page;
+
+    return Wrap(
+      spacing: 16,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Text(
-          totalPages == 0
-              ? '0 results'
-              : '$totalItems results • Page $page of $totalPages',
-        ),
-        const Spacer(),
-        IconButton(
+        Text(totalPages == 0 ? '0 results' : '$totalItems results'),
+        if (totalPages > 0)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Page: '),
+              DropdownButton<int>(
+                key: const ValueKey('albums-page-selector'),
+                value: currentPage,
+                items: List.generate(
+                  totalPages,
+                  (index) => DropdownMenuItem<int>(
+                    value: index + 1,
+                    child: Text('${index + 1}'),
+                  ),
+                ),
+                onChanged: isLoading || totalPages <= 1
+                    ? null
+                    : (value) {
+                        if (value == null || value == currentPage) {
+                          return;
+                        }
+                        onPageSelected(value);
+                      },
+              ),
+              Text(' of $totalPages'),
+            ],
+          ),
+        OutlinedButton.icon(
+          key: const ValueKey('albums-page-previous'),
           onPressed: isLoading ? null : onPrevious,
-          tooltip: 'Previous page',
           icon: const Icon(Icons.chevron_left),
+          label: const Text('Previous'),
         ),
-        IconButton(
+        OutlinedButton.icon(
+          key: const ValueKey('albums-page-next'),
           onPressed: isLoading ? null : onNext,
-          tooltip: 'Next page',
           icon: const Icon(Icons.chevron_right),
+          label: const Text('Next'),
         ),
       ],
     );

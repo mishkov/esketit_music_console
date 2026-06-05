@@ -69,6 +69,8 @@ abstract class TracksStorage {
     String? suggestedFileName,
   });
 
+  String resolveAlbumCoverUrl(String coverImagePath);
+
   Future<List<Author>> getAuthors();
 
   Future<Author> getAuthor(int id);
