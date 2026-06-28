@@ -43,7 +43,7 @@ class AppRoot extends StatelessWidget {
         'ESKETIT_API_BASE_URL',
         // DO NOT REMOVE ANY COMMENDTED LINES HERE BECAUSE THEY ARE USED TO QUICKLY SWITCH SERVER.
         // defaultValue: 'http://localhost:8080/api/',
-        defaultValue: 'http://46.101.162.92/api/',
+        defaultValue: 'https://esketitmusic.online/api/',
       ),
     );
     final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
