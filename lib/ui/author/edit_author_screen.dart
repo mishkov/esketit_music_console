@@ -1,6 +1,11 @@
+import 'dart:typed_data';
+
+import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
+import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -16,10 +21,13 @@ class EditAuthorScreen extends StatefulWidget {
 class _EditAuthorScreenState extends State<EditAuthorScreen> {
   final _nameController = TextEditingController();
   final List<String> _photos = [];
+  final List<_PendingAuthorPhoto> _pendingPhotoUploads = [];
   bool _isLoading = true;
   bool _isSaving = false;
   String? _errorMessage;
   Author? _author;
+
+  bool get _hasPendingPhotoUploads => _pendingPhotoUploads.isNotEmpty;
 
   @override
   void initState() {
@@ -35,6 +43,11 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final storage = context.read<TracksStorage>();
+    final isPhotoActionDisabled =
+        _isLoading || _isSaving || _hasPendingPhotoUploads;
+    final isSaveDisabled = _isLoading || _isSaving || _hasPendingPhotoUploads;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Edit author')),
       body: SafeArea(
@@ -66,22 +79,46 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Text(
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final actions = Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.tonalIcon(
+                            onPressed: isPhotoActionDisabled
+                                ? null
+                                : _uploadPhotos,
+                            icon: const Icon(Icons.upload_file),
+                            label: const Text('Upload file'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: isPhotoActionDisabled
+                                ? null
+                                : _addPhotoUrl,
+                            icon: const Icon(Icons.add_link),
+                            label: const Text('Add URL'),
+                          ),
+                        ],
+                      );
+
+                      final title = Text(
                         'Photos',
                         style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const Spacer(),
-                      FilledButton.tonalIcon(
-                        onPressed: _isLoading || _isSaving ? null : _addPhoto,
-                        icon: const Icon(Icons.add_link),
-                        label: const Text('Add photo'),
-                      ),
-                    ],
+                      );
+
+                      if (constraints.maxWidth < 520) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [title, const SizedBox(height: 8), actions],
+                        );
+                      }
+
+                      return Row(children: [title, const Spacer(), actions]);
+                    },
                   ),
                   const SizedBox(height: 12),
-                  if (_photos.isEmpty)
+                  if (_photos.isEmpty && _pendingPhotoUploads.isEmpty)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
@@ -94,31 +131,68 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
                       child: const Text('No photos yet.'),
                     )
                   else
-                    ..._photos.asMap().entries.map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Card(
-                          margin: EdgeInsets.zero,
-                          child: ListTile(
-                            title: Text(entry.value),
-                            trailing: IconButton(
-                              onPressed: _isSaving
-                                  ? null
-                                  : () => _removePhoto(entry.key),
-                              icon: const Icon(Icons.delete_outline),
-                              tooltip: 'Remove',
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final cardWidth = constraints.maxWidth < 560
+                            ? constraints.maxWidth
+                            : (constraints.maxWidth - 12) / 2;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            ..._pendingPhotoUploads.map(
+                              (photo) => SizedBox(
+                                width: cardWidth,
+                                child: _AuthorPhotoCard(
+                                  title: photo.name,
+                                  sourceLabel: 'Pending file',
+                                  memoryBytes: photo.bytes,
+                                  isPending: true,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
+                            ..._photos.asMap().entries.map(
+                              (entry) => SizedBox(
+                                width: cardWidth,
+                                child: _AuthorPhotoCard(
+                                  title: entry.value,
+                                  sourceLabel:
+                                      _isUploadedAuthorPhotoReference(
+                                        entry.value,
+                                      )
+                                      ? 'Uploaded file'
+                                      : 'URL',
+                                  imageUrl: storage.resolveAuthorPhotoUrl(
+                                    entry.value,
+                                  ),
+                                  onRemove: _isSaving || _hasPendingPhotoUploads
+                                      ? null
+                                      : () => _removePhoto(entry.key),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  if (_hasPendingPhotoUploads) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      'Uploading photos. Save is available after uploads finish.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
+                  ],
                   const SizedBox(height: 24),
-                  if (_isSaving) const LinearProgressIndicator(),
+                  if (_isSaving || _hasPendingPhotoUploads)
+                    const LinearProgressIndicator(),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       TextButton.icon(
-                        onPressed: _isLoading || _isSaving
+                        onPressed:
+                            _isLoading || _isSaving || _hasPendingPhotoUploads
                             ? null
                             : _deleteAuthor,
                         icon: const Icon(Icons.delete_outline),
@@ -132,7 +206,7 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       FilledButton(
-                        onPressed: _isLoading || _isSaving ? null : _saveAuthor,
+                        onPressed: isSaveDisabled ? null : _saveAuthor,
                         child: const Text('Save'),
                       ),
                     ],
@@ -178,7 +252,66 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
     }
   }
 
-  Future<void> _addPhoto() async {
+  Future<void> _uploadPhotos() async {
+    final storage = context.read<TracksStorage>();
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      type: FileType.image,
+      withData: true,
+    );
+    if (result == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final pendingPhotos = result.files
+        .where((file) => file.bytes != null)
+        .map((file) => _PendingAuthorPhoto(name: file.name, bytes: file.bytes!))
+        .toList();
+    if (pendingPhotos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No readable image files selected.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _pendingPhotoUploads.addAll(pendingPhotos);
+      _errorMessage = null;
+    });
+
+    try {
+      for (final pendingPhoto in pendingPhotos) {
+        final xFile = XFile.fromData(
+          pendingPhoto.bytes,
+          name: pendingPhoto.name,
+          mimeType: _imageMimeTypeFromName(pendingPhoto.name),
+        );
+        final photoPath = await storage.uploadAuthorPhoto(
+          CrossFile(file: xFile),
+        );
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _pendingPhotoUploads.remove(pendingPhoto);
+          _photos.add(photoPath);
+        });
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _pendingPhotoUploads.removeWhere(pendingPhotos.contains);
+        _errorMessage = _describeError(error);
+      });
+    }
+  }
+
+  Future<void> _addPhotoUrl() async {
     final controller = TextEditingController();
     final photo = await showDialog<String>(
       context: context,
@@ -256,6 +389,9 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
       }
       setState(() {
         _author = updatedAuthor;
+        _photos
+          ..clear()
+          ..addAll(updatedAuthor.photos);
         _isSaving = false;
       });
       Navigator.of(context).pop(true);
@@ -325,6 +461,36 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
     }
   }
 
+  String? _imageMimeTypeFromName(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    final extension = dotIndex == -1
+        ? ''
+        : fileName.substring(dotIndex + 1).toLowerCase();
+    return switch (extension) {
+      'bmp' => 'image/bmp',
+      'gif' => 'image/gif',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => null,
+    };
+  }
+
+  bool _isUploadedAuthorPhotoReference(String photo) {
+    final trimmedPhoto = photo.trim();
+    if (trimmedPhoto.isEmpty) {
+      return false;
+    }
+
+    final uri = Uri.tryParse(trimmedPhoto);
+    if (uri != null && uri.hasScheme) {
+      return uri.path.contains('/api/author-photos/');
+    }
+
+    return trimmedPhoto.startsWith('/api/author-photos/') ||
+        (!trimmedPhoto.startsWith('/') && !trimmedPhoto.contains('/'));
+  }
+
   String _describeError(Object error) {
     if (error is HttpAppError) {
       final responseBody = error.responseBody;
@@ -334,5 +500,182 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
       return error.message;
     }
     return error.toString();
+  }
+}
+
+class _PendingAuthorPhoto {
+  const _PendingAuthorPhoto({required this.name, required this.bytes});
+
+  final String name;
+  final Uint8List bytes;
+}
+
+class _AuthorPhotoCard extends StatelessWidget {
+  const _AuthorPhotoCard({
+    required this.title,
+    required this.sourceLabel,
+    this.imageUrl,
+    this.memoryBytes,
+    this.isPending = false,
+    this.onRemove,
+  });
+
+  final String title;
+  final String sourceLabel;
+  final String? imageUrl;
+  final Uint8List? memoryBytes;
+  final bool isPending;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(aspectRatio: 16 / 9, child: _buildPreview(context)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PhotoSourceBadge(
+                        label: sourceLabel,
+                        isPending: isPending,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Remove',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreview(BuildContext context) {
+    final placeholder = _AuthorPhotoPlaceholder(
+      icon: isPending ? Icons.upload_file : Icons.image_outlined,
+    );
+
+    Widget preview = placeholder;
+    final bytes = memoryBytes;
+    final url = imageUrl;
+    if (bytes != null) {
+      preview = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => placeholder,
+      );
+    } else if (url != null && url.isNotEmpty) {
+      preview = Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => placeholder,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            return child;
+          }
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              placeholder,
+              const Center(child: CircularProgressIndicator()),
+            ],
+          );
+        },
+      );
+    }
+
+    if (!isPending) {
+      return preview;
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        preview,
+        ColoredBox(
+          color: Colors.black.withValues(alpha: 0.24),
+          child: const Center(child: CircularProgressIndicator()),
+        ),
+      ],
+    );
+  }
+}
+
+class _PhotoSourceBadge extends StatelessWidget {
+  const _PhotoSourceBadge({required this.label, required this.isPending});
+
+  final String label;
+  final bool isPending;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isUrl = label == 'URL';
+    final icon = isPending
+        ? Icons.pending_outlined
+        : isUrl
+        ? Icons.link
+        : Icons.image_outlined;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isPending
+            ? colorScheme.tertiaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: Theme.of(context).textTheme.labelMedium),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthorPhotoPlaceholder extends StatelessWidget {
+  const _AuthorPhotoPlaceholder({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(icon, size: 36, color: colorScheme.onSurfaceVariant),
+      ),
+    );
   }
 }

@@ -62,6 +62,8 @@ abstract class TracksStorage {
 
   Future<String> uploadAlbumCover(Object file);
 
+  Future<String> uploadAuthorPhoto(Object file);
+
   Future<List<AlbumCoverSuggestion>> searchAlbumCoverSuggestions(String query);
 
   Future<String> importAlbumCoverFromUrl({
@@ -70,6 +72,8 @@ abstract class TracksStorage {
   });
 
   String resolveAlbumCoverUrl(String coverImagePath);
+
+  String resolveAuthorPhotoUrl(String photoPath);
 
   Future<List<Author>> getAuthors();
 

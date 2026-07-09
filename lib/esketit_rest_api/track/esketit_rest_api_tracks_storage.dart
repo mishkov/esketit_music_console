@@ -229,6 +229,16 @@ class EsketitRestApiTracksStorage implements TracksStorage {
   }
 
   @override
+  Future<String> uploadAuthorPhoto(Object file) async {
+    final uploaded = await _uploadBinaryFile(
+      path: '/author-photos',
+      file: file,
+      fallbackGetPathPrefix: '/api/author-photos/',
+    );
+    return uploaded.path.isNotEmpty ? uploaded.path : uploaded.url;
+  }
+
+  @override
   String resolveAlbumCoverUrl(String coverImagePath) {
     final trimmedPath = coverImagePath.trim();
     if (trimmedPath.isEmpty) {
@@ -246,6 +256,27 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           : '/api/album-covers/$trimmedPath',
     );
     return _baseUri.resolve(normalizedPath).toString();
+  }
+
+  @override
+  String resolveAuthorPhotoUrl(String photoPath) {
+    final trimmedPath = photoPath.trim();
+    if (trimmedPath.isEmpty) {
+      return '';
+    }
+
+    final absoluteUri = Uri.tryParse(trimmedPath);
+    if (absoluteUri != null && absoluteUri.hasScheme) {
+      return absoluteUri.toString();
+    }
+
+    final resolvedPath =
+        trimmedPath.startsWith('/') || trimmedPath.contains('/')
+        ? trimmedPath
+        : '/api/author-photos/$trimmedPath';
+    return _baseUri
+        .resolve(_normalizeRelativeMediaPath(resolvedPath))
+        .toString();
   }
 
   @override
@@ -686,6 +717,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     final body = _decodeJsonMap(response.response, path: path);
     return _UploadedFileInfo(
       name: (body['name'] as String?) ?? file.name,
+      path: (body['path'] as String?) ?? '',
       url: _baseUri
           .resolve(
             (body['url'] as String?) ??
@@ -912,8 +944,13 @@ class EsketitRestApiTracksStorage implements TracksStorage {
 }
 
 class _UploadedFileInfo {
-  const _UploadedFileInfo({required this.name, required this.url});
+  const _UploadedFileInfo({
+    required this.name,
+    required this.url,
+    this.path = '',
+  });
 
   final String name;
+  final String path;
   final String url;
 }
