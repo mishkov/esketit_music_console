@@ -20,6 +20,7 @@ import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:esketit_music_console/use_case/track/tracks_list/bloc/track_list_bloc.dart';
@@ -42,8 +43,8 @@ class AppRoot extends StatelessWidget {
       const String.fromEnvironment(
         'ESKETIT_API_BASE_URL',
         // DO NOT REMOVE ANY COMMENDTED LINES HERE BECAUSE THEY ARE USED TO QUICKLY SWITCH SERVER.
-        // defaultValue: 'http://localhost:8080/api/',
-        defaultValue: 'https://esketitmusic.online/api/',
+        defaultValue: 'http://localhost:8080/api/',
+        // defaultValue: 'https://esketitmusic.online/api/',
       ),
     );
     final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
@@ -97,6 +98,7 @@ class AppRoot extends StatelessWidget {
               storage: context.read<TracksStorage>(),
             ),
           ),
+          BlocProvider(create: (_) => AppThemeModeCubit()..load()),
         ],
         child: const MainApp(),
       ),
@@ -109,21 +111,31 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Esketit Music',
-      theme: ThemeData(colorSchemeSeed: Colors.green, useMaterial3: true),
-      home: BlocBuilder<AuthBloc, AuthState>(
-        builder: (context, state) {
-          switch (state.status) {
-            case AuthStatus.restoring:
-              return const _RestoringSessionScreen();
-            case AuthStatus.unauthenticated:
-              return const SignInScreen();
-            case AuthStatus.authenticated:
-              return const MainShell();
-          }
-        },
-      ),
+    return BlocBuilder<AppThemeModeCubit, AppThemeModePreference>(
+      builder: (context, themePreference) {
+        return MaterialApp(
+          title: 'Esketit Music',
+          theme: ThemeData(colorSchemeSeed: Colors.green, useMaterial3: true),
+          darkTheme: ThemeData(
+            colorSchemeSeed: Colors.green,
+            brightness: Brightness.dark,
+            useMaterial3: true,
+          ),
+          themeMode: themePreference.themeMode,
+          home: BlocBuilder<AuthBloc, AuthState>(
+            builder: (context, state) {
+              switch (state.status) {
+                case AuthStatus.restoring:
+                  return const _RestoringSessionScreen();
+                case AuthStatus.unauthenticated:
+                  return const SignInScreen();
+                case AuthStatus.authenticated:
+                  return const MainShell();
+              }
+            },
+          ),
+        );
+      },
     );
   }
 }

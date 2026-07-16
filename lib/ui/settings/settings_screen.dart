@@ -4,6 +4,7 @@ import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_cookies_m
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/telegram_import_models.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/youtube/youtube_cookies_repository.dart';
 import 'package:file_picker/file_picker.dart';
@@ -90,6 +91,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: ListView(
                   children: [
                     _SettingsCard(
+                      title: 'Appearance',
+                      child: _buildAppearanceSection(context),
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsCard(
                       title: 'Telegram Integration',
                       child: _buildTelegramSection(context),
                     ),
@@ -106,6 +112,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildAppearanceSection(BuildContext context) {
+    final themePreference = context.select(
+      (AppThemeModeCubit cubit) => cubit.state,
+    );
+
+    return SizedBox(
+      width: 240,
+      child: DropdownMenu<AppThemeModePreference>(
+        key: ValueKey(themePreference),
+        width: 240,
+        initialSelection: themePreference,
+        label: const Text('Theme'),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(),
+        ),
+        dropdownMenuEntries: AppThemeModePreference.values
+            .map(
+              (preference) => DropdownMenuEntry<AppThemeModePreference>(
+                value: preference,
+                label: preference.label,
+              ),
+            )
+            .toList(),
+        onSelected: (preference) {
+          if (preference == null) {
+            return;
+          }
+          context.read<AppThemeModeCubit>().setThemeMode(preference);
+        },
       ),
     );
   }

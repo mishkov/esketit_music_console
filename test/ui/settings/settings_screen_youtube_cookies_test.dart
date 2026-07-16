@@ -8,17 +8,20 @@ import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_cookies_m
 import 'package:esketit_music_console/ui/settings/settings_screen.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/auth/auth_repository.dart';
+import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/youtube/youtube_cookies_repository.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   FilePicker? originalFilePicker;
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     try {
       originalFilePicker = FilePicker.platform;
     } catch (_) {
@@ -176,15 +179,43 @@ void main() {
 
     expect(find.text('YouTube Cookies'), findsNothing);
   });
+
+  testWidgets('updates the selected theme mode from settings', (tester) async {
+    final themeModeCubit = AppThemeModeCubit();
+    await themeModeCubit.load();
+
+    await _pumpScreen(
+      tester,
+      authRepository: _FakeAuthRepository(role: AppUserRole.listener),
+      youtubeRepository: _FakeYouTubeCookiesRepository(
+        currentStatus: const YouTubeCookiesStatus(
+          configured: true,
+          filePresent: true,
+        ),
+      ),
+      themeModeCubit: themeModeCubit,
+    );
+
+    await _tapVisible(
+      tester,
+      find.byType(DropdownMenu<AppThemeModePreference>),
+    );
+    await tester.tap(find.text('Dark').last);
+    await tester.pumpAndSettle();
+
+    expect(themeModeCubit.state, AppThemeModePreference.dark);
+  });
 }
 
 Future<void> _pumpScreen(
   WidgetTester tester, {
   required _FakeAuthRepository authRepository,
   required _FakeYouTubeCookiesRepository youtubeRepository,
+  AppThemeModeCubit? themeModeCubit,
 }) async {
   final authBloc = AuthBloc(authRepository: authRepository)
     ..add(const AuthSessionRestoreRequested());
+  final appThemeModeCubit = themeModeCubit ?? (AppThemeModeCubit()..load());
 
   await tester.pumpWidget(
     MultiRepositoryProvider(
@@ -197,7 +228,10 @@ Future<void> _pumpScreen(
         ),
       ],
       child: MultiBlocProvider(
-        providers: [BlocProvider<AuthBloc>.value(value: authBloc)],
+        providers: [
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<AppThemeModeCubit>.value(value: appThemeModeCubit),
+        ],
         child: const MaterialApp(home: Scaffold(body: SettingsScreen())),
       ),
     ),
