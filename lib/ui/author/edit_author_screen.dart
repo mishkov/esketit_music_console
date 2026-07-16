@@ -4,6 +4,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/ui/author/author_photo_crop_dialog.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -89,8 +90,8 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
                             onPressed: isPhotoActionDisabled
                                 ? null
                                 : _uploadPhotos,
-                            icon: const Icon(Icons.upload_file),
-                            label: const Text('Upload file'),
+                            icon: const Icon(Icons.crop),
+                            label: const Text('Upload and crop'),
                           ),
                           FilledButton.tonalIcon(
                             onPressed: isPhotoActionDisabled
@@ -266,14 +267,37 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
       return;
     }
 
-    final pendingPhotos = result.files
-        .where((file) => file.bytes != null)
-        .map((file) => _PendingAuthorPhoto(name: file.name, bytes: file.bytes!))
-        .toList();
-    if (pendingPhotos.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No readable image files selected.')),
+    final pendingPhotos = <_PendingAuthorPhoto>[];
+    for (final file in result.files) {
+      final bytes = file.bytes;
+      if (bytes == null) {
+        continue;
+      }
+
+      final croppedBytes = await showAuthorPhotoCropDialog(
+        context,
+        imageBytes: bytes,
+        fileName: file.name,
       );
+      if (!mounted) {
+        return;
+      }
+      if (croppedBytes == null) {
+        continue;
+      }
+
+      pendingPhotos.add(
+        _PendingAuthorPhoto(
+          name: _croppedAuthorPhotoFileName(file.name),
+          bytes: croppedBytes,
+        ),
+      );
+    }
+
+    if (pendingPhotos.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No photos were added.')));
       return;
     }
 
@@ -474,6 +498,16 @@ class _EditAuthorScreenState extends State<EditAuthorScreen> {
       'webp' => 'image/webp',
       _ => null,
     };
+  }
+
+  String _croppedAuthorPhotoFileName(String fileName) {
+    final trimmedFileName = fileName.trim();
+    final dotIndex = trimmedFileName.lastIndexOf('.');
+    final baseName = dotIndex == -1
+        ? trimmedFileName
+        : trimmedFileName.substring(0, dotIndex);
+    final normalizedBaseName = baseName.isEmpty ? 'author_photo' : baseName;
+    return '${normalizedBaseName}_cropped.png';
   }
 
   bool _isUploadedAuthorPhotoReference(String photo) {

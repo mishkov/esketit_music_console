@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   archive: ^4.0.7
+  crop_your_image: ^2.0.0
   cross_file: ^0.3.4+2
   equatable: ^2.0.8
   file_picker: ^10.3.2
