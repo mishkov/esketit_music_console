@@ -4,6 +4,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:equatable/equatable.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/lyrics_search_candidate.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
@@ -17,8 +18,10 @@ import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/track/track_metadata_editor.dart';
 import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
+import 'package:esketit_music_console/use_case/lyrics/lyrics_search_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
@@ -39,6 +42,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   final _lyricsSourceController = TextEditingController();
   final _lyricsPlainTextController = TextEditingController();
   final _syncedLyricsCreatorKey = GlobalKey<_SyncedLyricsCreatorState>();
+  final _lyricsSearchAudioController = _TrackMiniPlayerController();
   final List<TrackInfo> _additionalInfos = [];
   final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
@@ -51,12 +55,16 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   bool _hasPersistedLyrics = false;
   bool _lyricsIsVerified = false;
   bool _isSyncedLyricsCreatorVisible = false;
+  bool _isSearchingLyrics = false;
   String? _errorMessage;
+  String? _lyricsSearchError;
   int? _selectedAlbumId;
   Track? _track;
   Album? _currentAlbum;
   CrossFile? _replacementFile;
   TrackLyricsType _lyricsType = TrackLyricsType.plain;
+  List<LyricsSearchCandidate>? _lyricsSearchCandidates;
+  int _selectedLyricsSearchCandidateIndex = 0;
   int _nextLyricsLineId = 0;
 
   @override
@@ -71,6 +79,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
     _lyricsLanguageCodeController.dispose();
     _lyricsSourceController.dispose();
     _lyricsPlainTextController.dispose();
+    _lyricsSearchAudioController.dispose();
     super.dispose();
   }
 
@@ -135,8 +144,12 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                       _AuthorPickerField(
                         authors: _selectedAuthors,
                         isLoading: _isLoading,
-                        onTap: _isLoading || _isSaving ? null : _showAuthorPicker,
-                        onRemove: _isLoading || _isSaving ? null : _removeAuthor,
+                        onTap: _isLoading || _isSaving
+                            ? null
+                            : _showAuthorPicker,
+                        onRemove: _isLoading || _isSaving
+                            ? null
+                            : _removeAuthor,
                       ),
                       const SizedBox(height: 24),
                       Text(
@@ -156,7 +169,9 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                         runSpacing: 12,
                         children: [
                           FilledButton.tonalIcon(
-                            onPressed: _isLoading || _isSaving ? null : _pickFile,
+                            onPressed: _isLoading || _isSaving
+                                ? null
+                                : _pickFile,
                             icon: const Icon(Icons.upload_file),
                             label: Text(
                               _replacementFile == null
@@ -221,7 +236,8 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                             _lyricsLines[index] = updatedLine;
                           });
                         },
-                        onLyricsLineMoveUp: (index) => _moveLyricsLine(index, -1),
+                        onLyricsLineMoveUp: (index) =>
+                            _moveLyricsLine(index, -1),
                         onLyricsLineMoveDown: (index) =>
                             _moveLyricsLine(index, 1),
                         onLyricsLineDelete: _removeLyricsLine,
@@ -237,6 +253,24 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                         onCreatedLyricsLineSubmitted: _addCreatedLyricsLine,
                         onCreatedLyricsLineCanceled: _cancelCreatedLyricsLine,
                         onDeleteLyrics: _deleteLyrics,
+                        isSearchingLyrics: _isSearchingLyrics,
+                        lyricsSearchCandidates: _lyricsSearchCandidates,
+                        selectedLyricsSearchCandidateIndex:
+                            _selectedLyricsSearchCandidateIndex,
+                        lyricsSearchError: _lyricsSearchError,
+                        lyricsSearchAudioController:
+                            _lyricsSearchAudioController,
+                        onSearchLyrics: _searchLyrics,
+                        onPreviousLyricsSearchCandidate:
+                            _showPreviousLyricsSearchCandidate,
+                        onNextLyricsSearchCandidate:
+                            _showNextLyricsSearchCandidate,
+                        onApplyPlainLyricsSearchCandidate:
+                            _applyPlainLyricsSearchCandidate,
+                        onSynchronizeLyricsSearchCandidate:
+                            _synchronizeLyricsSearchCandidate,
+                        onApplySyncedLyricsSearchCandidate:
+                            _applySyncedLyricsSearchCandidate,
                       ),
                       const SizedBox(height: 24),
                       TrackMetadataEditor(
@@ -409,6 +443,9 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   void _applyLyricsState(TrackLyrics? lyrics) {
     _lyricsLines.clear();
     _lyricsPlainTextController.clear();
+    _lyricsSearchCandidates = null;
+    _selectedLyricsSearchCandidateIndex = 0;
+    _lyricsSearchError = null;
 
     if (lyrics == null) {
       _hasLyrics = false;
@@ -460,6 +497,187 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       _removeEmptySyncedLyricsPlaceholder();
       _isSyncedLyricsCreatorVisible = true;
     });
+  }
+
+  Future<void> _searchLyrics() async {
+    final title = _titleController.text.trim();
+    final artistNames = _selectedAuthors
+        .map((author) => author.currentName.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+    if (title.isEmpty) {
+      _showMessage('Track title is required to search for lyrics.');
+      return;
+    }
+    if (artistNames.isEmpty) {
+      _showMessage('Select at least one artist before searching for lyrics.');
+      return;
+    }
+
+    setState(() {
+      _isSearchingLyrics = true;
+      _lyricsSearchCandidates = null;
+      _selectedLyricsSearchCandidateIndex = 0;
+      _lyricsSearchError = null;
+    });
+
+    try {
+      final candidates = await context.read<LyricsSearchRepository>().search(
+        trackId: widget.trackId,
+        trackName: title,
+        artistNames: artistNames,
+        albumName: _selectedAlbum?.title ?? '',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearchingLyrics = false;
+        _lyricsSearchCandidates = candidates;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearchingLyrics = false;
+        _lyricsSearchError = _describeError(error);
+      });
+    }
+  }
+
+  void _showPreviousLyricsSearchCandidate() {
+    if (_selectedLyricsSearchCandidateIndex <= 0) {
+      return;
+    }
+    setState(() {
+      _selectedLyricsSearchCandidateIndex -= 1;
+    });
+  }
+
+  void _showNextLyricsSearchCandidate() {
+    final candidates = _lyricsSearchCandidates;
+    if (candidates == null ||
+        _selectedLyricsSearchCandidateIndex >= candidates.length - 1) {
+      return;
+    }
+    setState(() {
+      _selectedLyricsSearchCandidateIndex += 1;
+    });
+  }
+
+  Future<void> _applyPlainLyricsSearchCandidate(
+    LyricsSearchCandidate candidate,
+  ) async {
+    final plainText = candidate.plainText?.trim() ?? '';
+    if (plainText.isEmpty || !await _confirmLyricsDraftReplacement()) {
+      return;
+    }
+    setState(() {
+      _hasLyrics = true;
+      _lyricsType = TrackLyricsType.plain;
+      _isSyncedLyricsCreatorVisible = false;
+      _lyricsPlainTextController.text = plainText;
+      _lyricsLines.clear();
+      _applyLyricsSearchCandidateMetadata(candidate);
+    });
+    _showMessage('Plain lyrics applied to the draft.');
+  }
+
+  Future<void> _applySyncedLyricsSearchCandidate(
+    LyricsSearchCandidate candidate,
+  ) async {
+    if (candidate.syncedLines.isEmpty ||
+        !await _confirmLyricsDraftReplacement()) {
+      return;
+    }
+    setState(() {
+      _hasLyrics = true;
+      _lyricsType = TrackLyricsType.synced;
+      _isSyncedLyricsCreatorVisible = false;
+      _lyricsPlainTextController.clear();
+      _lyricsLines
+        ..clear()
+        ..addAll(
+          candidate.syncedLines.map(
+            (line) => _EditableLyricsLine(
+              id: _nextLyricsLineId++,
+              startMs: '${line.startMs}',
+              endMs: line.endMs?.toString() ?? '',
+              text: line.text,
+            ),
+          ),
+        );
+      _applyLyricsSearchCandidateMetadata(candidate);
+    });
+    _showMessage('Synced lyrics applied to the draft.');
+  }
+
+  Future<void> _synchronizeLyricsSearchCandidate(
+    LyricsSearchCandidate candidate,
+  ) async {
+    final plainText = candidate.plainText?.trim() ?? '';
+    if (plainText.isEmpty || !await _confirmLyricsDraftReplacement()) {
+      return;
+    }
+    setState(() {
+      _hasLyrics = true;
+      _lyricsType = TrackLyricsType.synced;
+      _lyricsPlainTextController.clear();
+      _lyricsLines.clear();
+      _isSyncedLyricsCreatorVisible = true;
+      _applyLyricsSearchCandidateMetadata(candidate);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncedLyricsCreatorKey.currentState?._replacePlainText(plainText);
+    });
+  }
+
+  void _applyLyricsSearchCandidateMetadata(LyricsSearchCandidate candidate) {
+    _lyricsSourceController.text = candidate.source.trim().isEmpty
+        ? '${candidate.provider} #${candidate.providerId}'
+        : candidate.source;
+    _lyricsLanguageCodeController.clear();
+    _lyricsIsVerified = false;
+  }
+
+  Future<bool> _confirmLyricsDraftReplacement() async {
+    if (!_hasMeaningfulLyricsDraft) {
+      return true;
+    }
+    final shouldReplace = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Replace current lyrics?'),
+        content: const Text(
+          'Applying this search result replaces the current lyrics draft. The change is not saved until you save the track.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+    return shouldReplace == true && mounted;
+  }
+
+  bool get _hasMeaningfulLyricsDraft {
+    if (_hasPersistedLyrics ||
+        _lyricsPlainTextController.text.trim().isNotEmpty) {
+      return true;
+    }
+    return _lyricsLines.any(
+      (line) =>
+          line.text.trim().isNotEmpty ||
+          line.startMs.trim() != '0' ||
+          line.endMs.trim().isNotEmpty,
+    );
   }
 
   _EditableLyricsLine _createLyricsLine() {
@@ -1323,6 +1541,17 @@ class _LyricsSection extends StatelessWidget {
     required this.onCreatedLyricsLineSubmitted,
     required this.onCreatedLyricsLineCanceled,
     required this.onDeleteLyrics,
+    required this.isSearchingLyrics,
+    required this.lyricsSearchCandidates,
+    required this.selectedLyricsSearchCandidateIndex,
+    required this.lyricsSearchError,
+    required this.lyricsSearchAudioController,
+    required this.onSearchLyrics,
+    required this.onPreviousLyricsSearchCandidate,
+    required this.onNextLyricsSearchCandidate,
+    required this.onApplyPlainLyricsSearchCandidate,
+    required this.onSynchronizeLyricsSearchCandidate,
+    required this.onApplySyncedLyricsSearchCandidate,
   });
 
   final bool hasLyrics;
@@ -1355,17 +1584,50 @@ class _LyricsSection extends StatelessWidget {
   onCreatedLyricsLineSubmitted;
   final ({int seekMs, String text})? Function() onCreatedLyricsLineCanceled;
   final Future<void> Function() onDeleteLyrics;
+  final bool isSearchingLyrics;
+  final List<LyricsSearchCandidate>? lyricsSearchCandidates;
+  final int selectedLyricsSearchCandidateIndex;
+  final String? lyricsSearchError;
+  final _TrackMiniPlayerController lyricsSearchAudioController;
+  final Future<void> Function() onSearchLyrics;
+  final VoidCallback onPreviousLyricsSearchCandidate;
+  final VoidCallback onNextLyricsSearchCandidate;
+  final ValueChanged<LyricsSearchCandidate> onApplyPlainLyricsSearchCandidate;
+  final ValueChanged<LyricsSearchCandidate> onSynchronizeLyricsSearchCandidate;
+  final ValueChanged<LyricsSearchCandidate> onApplySyncedLyricsSearchCandidate;
 
   @override
   Widget build(BuildContext context) {
     if (!hasLyrics) {
-      return _LyricsEmptyState(
-        isDisabled: isLoading || isSaving,
-        onStartPlainLyrics: onStartPlainLyrics,
-        onStartSyncedLyrics: onStartSyncedLyrics,
-        onImportPlainLyrics: onImportPlainLyrics,
-        onImportSyncedLyrics: onImportSyncedLyrics,
-        onStartSyncedLyricsCreator: onStartSyncedLyricsCreator,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _LyricsEmptyState(
+            isDisabled: isLoading || isSaving || isSearchingLyrics,
+            onStartPlainLyrics: onStartPlainLyrics,
+            onStartSyncedLyrics: onStartSyncedLyrics,
+            onImportPlainLyrics: onImportPlainLyrics,
+            onImportSyncedLyrics: onImportSyncedLyrics,
+            onStartSyncedLyricsCreator: onStartSyncedLyricsCreator,
+            onSearchLyrics: onSearchLyrics,
+          ),
+          _LyricsSearchBlock(
+            isSearching: isSearchingLyrics,
+            candidates: lyricsSearchCandidates,
+            selectedIndex: selectedLyricsSearchCandidateIndex,
+            errorMessage: lyricsSearchError,
+            audioController: lyricsSearchAudioController,
+            trackFile: trackFile,
+            isDisabled: isSaving,
+            showMiniPlayer: true,
+            onRetry: onSearchLyrics,
+            onPrevious: onPreviousLyricsSearchCandidate,
+            onNext: onNextLyricsSearchCandidate,
+            onApplyPlain: onApplyPlainLyricsSearchCandidate,
+            onSynchronize: onSynchronizeLyricsSearchCandidate,
+            onApplySynced: onApplySyncedLyricsSearchCandidate,
+          ),
+        ],
       );
     }
 
@@ -1450,10 +1712,17 @@ class _LyricsSection extends StatelessWidget {
             ),
             if (lyricsType == TrackLyricsType.synced)
               FilledButton.tonalIcon(
-                onPressed: isSaving ? null : onStartSyncedLyricsCreator,
+                onPressed: isSaving || isSearchingLyrics
+                    ? null
+                    : onStartSyncedLyricsCreator,
                 icon: const Icon(Icons.playlist_play),
                 label: const Text('Create synced lyrics'),
               ),
+            FilledButton.tonalIcon(
+              onPressed: isSaving || isSearchingLyrics ? null : onSearchLyrics,
+              icon: const Icon(Icons.search),
+              label: const Text('Search lyrics'),
+            ),
             TextButton.icon(
               onPressed: isSaving ? null : onDeleteLyrics,
               icon: const Icon(Icons.delete_outline),
@@ -1462,6 +1731,22 @@ class _LyricsSection extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        _LyricsSearchBlock(
+          isSearching: isSearchingLyrics,
+          candidates: lyricsSearchCandidates,
+          selectedIndex: selectedLyricsSearchCandidateIndex,
+          errorMessage: lyricsSearchError,
+          audioController: lyricsSearchAudioController,
+          trackFile: trackFile,
+          isDisabled: isSaving,
+          showMiniPlayer: !isSyncedLyricsCreatorVisible,
+          onRetry: onSearchLyrics,
+          onPrevious: onPreviousLyricsSearchCandidate,
+          onNext: onNextLyricsSearchCandidate,
+          onApplyPlain: onApplyPlainLyricsSearchCandidate,
+          onSynchronize: onSynchronizeLyricsSearchCandidate,
+          onApplySynced: onApplySyncedLyricsSearchCandidate,
         ),
       ],
     );
@@ -1476,6 +1761,7 @@ class _LyricsEmptyState extends StatelessWidget {
     required this.onImportPlainLyrics,
     required this.onImportSyncedLyrics,
     required this.onStartSyncedLyricsCreator,
+    required this.onSearchLyrics,
   });
 
   final bool isDisabled;
@@ -1484,6 +1770,7 @@ class _LyricsEmptyState extends StatelessWidget {
   final Future<void> Function() onImportPlainLyrics;
   final Future<void> Function() onImportSyncedLyrics;
   final VoidCallback onStartSyncedLyricsCreator;
+  final Future<void> Function() onSearchLyrics;
 
   @override
   Widget build(BuildContext context) {
@@ -1521,10 +1808,337 @@ class _LyricsEmptyState extends StatelessWidget {
               icon: const Icon(Icons.playlist_play),
               label: const Text('Create synced lyrics'),
             ),
+            FilledButton.tonalIcon(
+              onPressed: isDisabled ? null : onSearchLyrics,
+              icon: const Icon(Icons.search),
+              label: const Text('Search lyrics'),
+            ),
           ],
         ),
       ],
     );
+  }
+}
+
+class _LyricsSearchBlock extends StatelessWidget {
+  const _LyricsSearchBlock({
+    required this.isSearching,
+    required this.candidates,
+    required this.selectedIndex,
+    required this.errorMessage,
+    required this.audioController,
+    required this.trackFile,
+    required this.isDisabled,
+    required this.showMiniPlayer,
+    required this.onRetry,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onApplyPlain,
+    required this.onSynchronize,
+    required this.onApplySynced,
+  });
+
+  final bool isSearching;
+  final List<LyricsSearchCandidate>? candidates;
+  final int selectedIndex;
+  final String? errorMessage;
+  final _TrackMiniPlayerController audioController;
+  final Object? trackFile;
+  final bool isDisabled;
+  final bool showMiniPlayer;
+  final Future<void> Function() onRetry;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final ValueChanged<LyricsSearchCandidate> onApplyPlain;
+  final ValueChanged<LyricsSearchCandidate> onSynchronize;
+  final ValueChanged<LyricsSearchCandidate> onApplySynced;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isSearching && candidates == null && errorMessage == null) {
+      return const SizedBox.shrink();
+    }
+
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Material(
+        color: colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: _buildContent(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    if (isSearching) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Searching LRCLIB…'),
+                SizedBox(height: 2),
+                Text('Looking for the best matching lyrics.'),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (errorMessage != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Could not search LRCLIB',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 6),
+          Text(errorMessage!),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ],
+      );
+    }
+
+    final items = candidates ?? const <LyricsSearchCandidate>[];
+    if (items.isEmpty) {
+      return const Text('No lyrics found');
+    }
+
+    final safeIndex = selectedIndex.clamp(0, items.length - 1);
+    final candidate = items[safeIndex];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (items.length > 1) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Select the correct lyrics',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              Text('${safeIndex + 1} of ${items.length}'),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (showMiniPlayer) ...[
+          _TrackMiniPlayer(
+            key: const ValueKey('lyrics-search-mini-player'),
+            controller: audioController,
+            trackFile: trackFile,
+            isDisabled: isDisabled,
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (items.length > 1)
+          Row(
+            children: [
+              IconButton.filledTonal(
+                onPressed: safeIndex == 0 ? null : onPrevious,
+                icon: const Icon(Icons.chevron_left),
+                tooltip: 'Previous lyrics',
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _candidateTitle(candidate),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                onPressed: safeIndex == items.length - 1 ? null : onNext,
+                icon: const Icon(Icons.chevron_right),
+                tooltip: 'Next lyrics',
+              ),
+            ],
+          )
+        else
+          Text(
+            _candidateTitle(candidate),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        const SizedBox(height: 6),
+        Text(
+          _candidateDetails(candidate),
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          _resultLabel(candidate),
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 12),
+        _LyricsCandidatePreview(
+          candidate: candidate,
+          positionMs: audioController.positionListenable,
+        ),
+        if (candidate.hasSyncedLyrics) ...[
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => onApplySynced(candidate),
+            icon: const Icon(Icons.check),
+            label: const Text('Apply synced lyrics'),
+          ),
+        ] else if (candidate.hasPlainLyrics) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              FilledButton.icon(
+                onPressed: () => onApplyPlain(candidate),
+                icon: const Icon(Icons.check),
+                label: const Text('Apply as plain lyrics'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => onSynchronize(candidate),
+                icon: const Icon(Icons.playlist_play),
+                label: const Text('Synchronize manually'),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _candidateTitle(LyricsSearchCandidate candidate) {
+    final artist = candidate.artistName.trim();
+    return artist.isEmpty
+        ? candidate.trackName
+        : '${candidate.trackName} — $artist';
+  }
+
+  String _candidateDetails(LyricsSearchCandidate candidate) {
+    final details = <String>[];
+    if (candidate.albumName.trim().isNotEmpty) {
+      details.add(candidate.albumName.trim());
+    }
+    if (candidate.durationMs > 0) {
+      details.add(_formatSearchDuration(candidate.durationMs));
+    }
+    details.add(candidate.source);
+    return details.join(' • ');
+  }
+
+  String _resultLabel(LyricsSearchCandidate candidate) {
+    if (candidate.hasSyncedLyrics) {
+      return 'Synced lyrics found';
+    }
+    if (candidate.hasPlainLyrics) {
+      return 'Plain lyrics found';
+    }
+    if (candidate.instrumental) {
+      return 'LRCLIB marks this track as instrumental';
+    }
+    return 'No lyrics found in this result';
+  }
+
+  String _formatSearchDuration(int durationMs) {
+    final duration = Duration(milliseconds: durationMs);
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+}
+
+class _LyricsCandidatePreview extends StatelessWidget {
+  const _LyricsCandidatePreview({
+    required this.candidate,
+    required this.positionMs,
+  });
+
+  final LyricsSearchCandidate candidate;
+  final ValueListenable<int> positionMs;
+
+  @override
+  Widget build(BuildContext context) {
+    if (candidate.hasSyncedLyrics) {
+      return ValueListenableBuilder<int>(
+        valueListenable: positionMs,
+        builder: (context, currentPositionMs, _) {
+          final activeIndex = _activeLineIndex(currentPositionMs);
+          return ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 500),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: candidate.syncedLines.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final line = candidate.syncedLines[index];
+                final isHighlighted = index == activeIndex;
+                return _LyricsPreviewLine(
+                  key: isHighlighted
+                      ? ValueKey('current-lyrics-line-$index')
+                      : ValueKey('lyrics-line-$index'),
+                  startMs: line.startMs,
+                  text: line.text,
+                  isHighlighted: isHighlighted,
+                );
+              },
+            ),
+          );
+        },
+      );
+    }
+    if (candidate.hasPlainLyrics) {
+      return Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxHeight: 500),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: SingleChildScrollView(
+          child: SelectionArea(child: Text(candidate.plainText!.trim())),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  int _activeLineIndex(int positionMs) {
+    for (var index = 0; index < candidate.syncedLines.length; index++) {
+      final line = candidate.syncedLines[index];
+      final nextLine = index + 1 < candidate.syncedLines.length
+          ? candidate.syncedLines[index + 1]
+          : null;
+      final endMs = line.endMs ?? nextLine?.startMs;
+      if (positionMs >= line.startMs && (endMs == null || positionMs < endMs)) {
+        return index;
+      }
+    }
+    return -1;
   }
 }
 
@@ -1608,21 +2222,11 @@ class _SyncedLyricsCreator extends StatefulWidget {
 }
 
 class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
-  final AudioPlayer _player = AudioPlayer();
+  final _audioController = _TrackMiniPlayerController();
   final TextEditingController _plainTextController = TextEditingController();
   final FocusNode _panelFocusNode = FocusNode();
   final FocusNode _plainTextFocusNode = FocusNode();
   final ScrollController _submittedLinesScrollController = ScrollController();
-
-  StreamSubscription<Duration>? _positionSubscription;
-  StreamSubscription<Duration?>? _durationSubscription;
-  StreamSubscription<PlayerState>? _playerStateSubscription;
-
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  bool _isLoadingAudio = false;
-  String? _loadedSourceKey;
-  String? _audioErrorMessage;
   int _delayMs = 200;
   late int _submittedLineCount;
 
@@ -1642,32 +2246,6 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
   void initState() {
     super.initState();
     _submittedLineCount = widget.lyricsLines.length;
-    _positionSubscription = _player.positionStream.listen((position) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _position = position;
-      });
-    });
-    _durationSubscription = _player.durationStream.listen((duration) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _duration = duration ?? Duration.zero;
-      });
-    });
-    _playerStateSubscription = _player.playerStateStream.listen((state) {
-      if (!mounted) {
-        return;
-      }
-      if (state.processingState == ProcessingState.completed) {
-        _player.seek(Duration.zero);
-        _player.pause();
-      }
-      setState(() {});
-    });
   }
 
   @override
@@ -1677,17 +2255,11 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
       _submittedLineCount = widget.lyricsLines.length;
       _scrollSubmittedLinesToBottom();
     }
-    if (_sourceKeyFor(widget.trackFile) != _sourceKeyFor(oldWidget.trackFile)) {
-      _resetAudio();
-    }
   }
 
   @override
   void dispose() {
-    _positionSubscription?.cancel();
-    _durationSubscription?.cancel();
-    _playerStateSubscription?.cancel();
-    _player.dispose();
+    _audioController.dispose();
     _plainTextController.dispose();
     _panelFocusNode.dispose();
     _plainTextFocusNode.dispose();
@@ -1697,12 +2269,6 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final sourceLabel = _sourceLabelFor(widget.trackFile);
-    final hasAudioSource = _sourceKeyFor(widget.trackFile) != null;
-    final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
-    final currentMs = _position.inMilliseconds.clamp(0, maxMs).toDouble();
-
     return CallbackShortcuts(
       bindings: _shortcutBindings,
       child: Focus(
@@ -1711,116 +2277,39 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Material(
-              color: colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          _player.playing
-                              ? Icons.graphic_eq
-                              : Icons.audio_file_outlined,
+            _TrackMiniPlayer(
+              key: const ValueKey('synced-lyrics-creator-mini-player'),
+              controller: _audioController,
+              trackFile: widget.trackFile,
+              isDisabled: widget.isSaving,
+              trailing: SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<int>(
+                  initialValue: _delayMs,
+                  decoration: const InputDecoration(
+                    labelText: 'Delay',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _delayOptions
+                      .map(
+                        (delay) => DropdownMenuItem<int>(
+                          value: delay,
+                          child: Text('$delay ms'),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            sourceLabel,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Slider(
-                      value: currentMs,
-                      max: maxMs.toDouble(),
-                      onChanged: hasAudioSource && _duration > Duration.zero
-                          ? (value) => _seekToMs(value.round())
-                          : null,
-                    ),
-                    Row(
-                      children: [
-                        Text(_formatDuration(_position)),
-                        const Spacer(),
-                        if (_isLoadingAudio)
-                          Text(
-                            'Loading...',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          )
-                        else if (_audioErrorMessage != null)
-                          Flexible(
-                            child: Text(
-                              _audioErrorMessage!,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: colorScheme.error),
-                            ),
-                          ),
-                        const Spacer(),
-                        Text(_formatDuration(_duration)),
-                      ],
-                    ),
-                  ],
+                      )
+                      .toList(),
+                  onChanged: widget.isSaving
+                      ? null
+                      : (value) {
+                          if (value == null) {
+                            return;
+                          }
+                          setState(() {
+                            _delayMs = value;
+                          });
+                        },
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                IconButton.filledTonal(
-                  onPressed: widget.isSaving ? null : () => _seekBy(-5000),
-                  icon: const Icon(Icons.replay_5),
-                  tooltip: 'Back 5 seconds',
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed:
-                      widget.isSaving || _isLoadingAudio || !hasAudioSource
-                      ? null
-                      : _togglePlayPause,
-                  icon: Icon(_player.playing ? Icons.pause : Icons.play_arrow),
-                  tooltip: _player.playing ? 'Pause' : 'Play',
-                ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  onPressed: widget.isSaving ? null : () => _seekBy(5000),
-                  icon: const Icon(Icons.forward_5),
-                  tooltip: 'Forward 5 seconds',
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 180,
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _delayMs,
-                    decoration: const InputDecoration(
-                      labelText: 'Delay',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _delayOptions
-                        .map(
-                          (delay) => DropdownMenuItem<int>(
-                            value: delay,
-                            child: Text('$delay ms'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: widget.isSaving
-                        ? null
-                        : (value) {
-                            if (value == null) {
-                              return;
-                            }
-                            setState(() {
-                              _delayMs = value;
-                            });
-                          },
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 12),
             _SubmittedSyncedLyricsBlock(
@@ -1872,12 +2361,330 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
     const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _cancelLastLine,
   };
 
+  void _seekBackFromShortcut() {
+    if (widget.isSaving) {
+      return;
+    }
+    _audioController.seekBy(-5000);
+  }
+
+  void _seekForwardFromShortcut() {
+    if (widget.isSaving) {
+      return;
+    }
+    _audioController.seekBy(5000);
+  }
+
+  void _playPauseFromShortcut() {
+    if (widget.isSaving) {
+      return;
+    }
+    _audioController.togglePlayPause();
+  }
+
+  void _submitNextLine() {
+    if (widget.isSaving) {
+      return;
+    }
+    final remainingLines = _plainTextController.text
+        .split(RegExp(r'\r\n|\n|\r'))
+        .toList();
+    while (remainingLines.isNotEmpty && remainingLines.first.trim().isEmpty) {
+      remainingLines.removeAt(0);
+    }
+    if (remainingLines.isEmpty) {
+      _plainTextController.clear();
+      return;
+    }
+
+    final lineText = remainingLines.removeAt(0).trim();
+    if (lineText.isEmpty) {
+      return;
+    }
+    final startMs = (_audioController.positionMs - _delayMs)
+        .clamp(0, 1 << 31)
+        .toInt();
+
+    widget.onSubmitLine(startMs: startMs, text: lineText);
+    _plainTextController.text = remainingLines.join('\n');
+    _plainTextController.selection = TextSelection.collapsed(
+      offset: _plainTextController.text.length,
+    );
+  }
+
+  void _cancelLastLine() {
+    if (widget.isSaving) {
+      return;
+    }
+    final canceledLine = widget.onCancelLastLine();
+    if (canceledLine == null) {
+      return;
+    }
+
+    final currentText = _plainTextController.text;
+    _plainTextController.text = currentText.trim().isEmpty
+        ? canceledLine.text
+        : '${canceledLine.text}\n$currentText';
+    _plainTextController.selection = TextSelection.collapsed(
+      offset: _plainTextController.text.length,
+    );
+    _audioController.seekToMs(canceledLine.seekMs);
+  }
+
+  void _replacePlainText(String text) {
+    _plainTextController.text = text;
+    _plainTextController.selection = TextSelection.collapsed(
+      offset: _plainTextController.text.length,
+    );
+    _plainTextFocusNode.requestFocus();
+  }
+
+  void _scrollSubmittedLinesToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_submittedLinesScrollController.hasClients) {
+        return;
+      }
+      _submittedLinesScrollController.animateTo(
+        _submittedLinesScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+}
+
+class _TrackMiniPlayerController {
+  _TrackMiniPlayerState? _state;
+  final ValueNotifier<int> _positionMs = ValueNotifier(0);
+
+  int get positionMs => _positionMs.value;
+  ValueListenable<int> get positionListenable => _positionMs;
+
+  Future<void> togglePlayPause() async {
+    await _state?._togglePlayPause();
+  }
+
+  Future<void> seekBy(int offsetMs) async {
+    await _state?._seekBy(offsetMs);
+  }
+
+  Future<void> seekToMs(int milliseconds) async {
+    await _state?._seekToMs(milliseconds);
+  }
+
+  void _attach(_TrackMiniPlayerState state) {
+    _state = state;
+    _updatePosition(state._position);
+  }
+
+  void _detach(_TrackMiniPlayerState state) {
+    if (identical(_state, state)) {
+      _state = null;
+    }
+  }
+
+  void _updatePosition(Duration position) {
+    final milliseconds = position.inMilliseconds;
+    if (_positionMs.value != milliseconds) {
+      _positionMs.value = milliseconds;
+    }
+  }
+
+  void dispose() {
+    _state = null;
+    _positionMs.dispose();
+  }
+}
+
+class _TrackMiniPlayer extends StatefulWidget {
+  const _TrackMiniPlayer({
+    super.key,
+    this.controller,
+    required this.trackFile,
+    required this.isDisabled,
+    this.trailing,
+  });
+
+  final _TrackMiniPlayerController? controller;
+  final Object? trackFile;
+  final bool isDisabled;
+  final Widget? trailing;
+
+  @override
+  State<_TrackMiniPlayer> createState() => _TrackMiniPlayerState();
+}
+
+class _TrackMiniPlayerState extends State<_TrackMiniPlayer> {
+  final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<Duration?>? _durationSubscription;
+  StreamSubscription<PlayerState>? _playerStateSubscription;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  bool _isLoadingAudio = false;
+  String? _loadedSourceKey;
+  String? _audioErrorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?._attach(this);
+    _positionSubscription = _player.positionStream.listen((position) {
+      if (mounted) {
+        widget.controller?._updatePosition(position);
+        setState(() {
+          _position = position;
+        });
+      }
+    });
+    _durationSubscription = _player.durationStream.listen((duration) {
+      if (mounted) {
+        setState(() {
+          _duration = duration ?? Duration.zero;
+        });
+      }
+    });
+    _playerStateSubscription = _player.playerStateStream.listen((state) {
+      if (!mounted) {
+        return;
+      }
+      if (state.processingState == ProcessingState.completed) {
+        _player.seek(Duration.zero);
+        _player.pause();
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrackMiniPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.controller, oldWidget.controller)) {
+      oldWidget.controller?._detach(this);
+      widget.controller?._attach(this);
+    }
+    if (_sourceKeyFor(widget.trackFile) != _sourceKeyFor(oldWidget.trackFile)) {
+      _resetAudio();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller?._detach(this);
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _playerStateSubscription?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasAudioSource = _sourceKeyFor(widget.trackFile) != null;
+    final maxMs = _duration.inMilliseconds <= 0 ? 1 : _duration.inMilliseconds;
+    final currentMs = _position.inMilliseconds.clamp(0, maxMs).toDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      _player.playing
+                          ? Icons.graphic_eq
+                          : Icons.audio_file_outlined,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _sourceLabelFor(widget.trackFile),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Slider(
+                  value: currentMs,
+                  max: maxMs.toDouble(),
+                  onChanged:
+                      !widget.isDisabled &&
+                          hasAudioSource &&
+                          _duration > Duration.zero
+                      ? (value) => _seekToMs(value.round())
+                      : null,
+                ),
+                Row(
+                  children: [
+                    Text(_formatAudioDuration(_position)),
+                    const Spacer(),
+                    if (_isLoadingAudio)
+                      Text(
+                        'Loading...',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      )
+                    else if (_audioErrorMessage != null)
+                      Flexible(
+                        child: Text(
+                          _audioErrorMessage!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: colorScheme.error),
+                        ),
+                      ),
+                    const Spacer(),
+                    Text(_formatAudioDuration(_duration)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            IconButton.filledTonal(
+              onPressed: widget.isDisabled ? null : () => _seekBy(-5000),
+              icon: const Icon(Icons.replay_5),
+              tooltip: 'Back 5 seconds',
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: widget.isDisabled || _isLoadingAudio || !hasAudioSource
+                  ? null
+                  : _togglePlayPause,
+              icon: Icon(_player.playing ? Icons.pause : Icons.play_arrow),
+              tooltip: _player.playing ? 'Pause' : 'Play',
+            ),
+            const SizedBox(width: 8),
+            IconButton.filledTonal(
+              onPressed: widget.isDisabled ? null : () => _seekBy(5000),
+              icon: const Icon(Icons.forward_5),
+              tooltip: 'Forward 5 seconds',
+            ),
+            if (widget.trailing != null) ...[const Spacer(), widget.trailing!],
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _togglePlayPause() async {
+    if (widget.isDisabled) {
+      return;
+    }
     if (_player.playing) {
       await _player.pause();
       return;
     }
-
     if (_loadedSourceKey != _sourceKeyFor(widget.trackFile)) {
       await _loadAudioSource();
       if (_loadedSourceKey == null) {
@@ -1885,29 +2692,6 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
       }
     }
     await _player.play();
-  }
-
-  void _seekBackFromShortcut() {
-    if (widget.isSaving) {
-      return;
-    }
-    _seekBy(-5000);
-  }
-
-  void _seekForwardFromShortcut() {
-    if (widget.isSaving) {
-      return;
-    }
-    _seekBy(5000);
-  }
-
-  void _playPauseFromShortcut() {
-    if (widget.isSaving ||
-        _sourceKeyFor(widget.trackFile) == null ||
-        _isLoadingAudio) {
-      return;
-    }
-    _togglePlayPause();
   }
 
   Future<void> _loadAudioSource() async {
@@ -1923,7 +2707,6 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
       _isLoadingAudio = true;
       _audioErrorMessage = null;
     });
-
     try {
       final trackFile = widget.trackFile;
       if (trackFile is StorageFile) {
@@ -1961,84 +2744,23 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
     }
     final position = Duration(milliseconds: clampedMs);
     await _player.seek(position);
-    if (!mounted) {
-      return;
+    if (mounted) {
+      widget.controller?._updatePosition(position);
+      setState(() {
+        _position = position;
+      });
     }
-    setState(() {
-      _position = position;
-    });
-  }
-
-  void _submitNextLine() {
-    if (widget.isSaving) {
-      return;
-    }
-    final remainingLines = _plainTextController.text
-        .split(RegExp(r'\r\n|\n|\r'))
-        .toList();
-    while (remainingLines.isNotEmpty && remainingLines.first.trim().isEmpty) {
-      remainingLines.removeAt(0);
-    }
-    if (remainingLines.isEmpty) {
-      _plainTextController.clear();
-      return;
-    }
-
-    final lineText = remainingLines.removeAt(0).trim();
-    if (lineText.isEmpty) {
-      return;
-    }
-    final startMs = (_position.inMilliseconds - _delayMs)
-        .clamp(0, 1 << 31)
-        .toInt();
-
-    widget.onSubmitLine(startMs: startMs, text: lineText);
-    _plainTextController.text = remainingLines.join('\n');
-    _plainTextController.selection = TextSelection.collapsed(
-      offset: _plainTextController.text.length,
-    );
-  }
-
-  void _cancelLastLine() {
-    if (widget.isSaving) {
-      return;
-    }
-    final canceledLine = widget.onCancelLastLine();
-    if (canceledLine == null) {
-      return;
-    }
-
-    final currentText = _plainTextController.text;
-    _plainTextController.text = currentText.trim().isEmpty
-        ? canceledLine.text
-        : '${canceledLine.text}\n$currentText';
-    _plainTextController.selection = TextSelection.collapsed(
-      offset: _plainTextController.text.length,
-    );
-    _seekToMs(canceledLine.seekMs);
   }
 
   void _resetAudio() {
     _player.stop();
+    widget.controller?._updatePosition(Duration.zero);
     setState(() {
       _loadedSourceKey = null;
       _audioErrorMessage = null;
       _isLoadingAudio = false;
       _position = Duration.zero;
       _duration = Duration.zero;
-    });
-  }
-
-  void _scrollSubmittedLinesToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_submittedLinesScrollController.hasClients) {
-        return;
-      }
-      _submittedLinesScrollController.animateTo(
-        _submittedLinesScrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
     });
   }
 
@@ -2061,16 +2783,16 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
     }
     return 'No playable audio file';
   }
+}
 
-  static String _formatDuration(Duration value) {
-    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final milliseconds = value.inMilliseconds
-        .remainder(1000)
-        .toString()
-        .padLeft(3, '0');
-    return '$minutes:$seconds.$milliseconds';
-  }
+String _formatAudioDuration(Duration value) {
+  final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+  final milliseconds = value.inMilliseconds
+      .remainder(1000)
+      .toString()
+      .padLeft(3, '0');
+  return '$minutes:$seconds.$milliseconds';
 }
 
 class _SubmittedSyncedLyricsBlock extends StatelessWidget {
@@ -2097,41 +2819,72 @@ class _SubmittedSyncedLyricsBlock extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final line = lines[index];
-          return _SubmittedSyncedLyricsLine(line: line);
+          return _LyricsPreviewLine(
+            startMs: line.parsedStartMs ?? 0,
+            text: line.text,
+          );
         },
       ),
     );
   }
 }
 
-class _SubmittedSyncedLyricsLine extends StatelessWidget {
-  const _SubmittedSyncedLyricsLine({required this.line});
+class _LyricsPreviewLine extends StatelessWidget {
+  const _LyricsPreviewLine({
+    super.key,
+    required this.startMs,
+    required this.text,
+    this.isHighlighted = false,
+  });
 
-  final _EditableLyricsLine line;
+  final int startMs;
+  final String text;
+  final bool isHighlighted;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final startMs = line.parsedStartMs ?? 0;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            _SyncedLyricsCreatorState._formatDuration(
-              Duration(milliseconds: startMs),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      width: double.infinity,
+      padding: EdgeInsets.all(isHighlighted ? 8 : 0),
+      decoration: BoxDecoration(
+        color: isHighlighted ? colorScheme.secondaryContainer : null,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isHighlighted
+                  ? colorScheme.primary
+                  : colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(16),
             ),
-            style: TextStyle(color: colorScheme.onPrimaryContainer),
+            child: Text(
+              _formatAudioDuration(Duration(milliseconds: startMs)),
+              style: TextStyle(
+                color: isHighlighted
+                    ? colorScheme.onPrimary
+                    : colorScheme.onPrimaryContainer,
+                fontWeight: isHighlighted ? FontWeight.w600 : null,
+              ),
+            ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Text(line.text)),
-      ],
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: isHighlighted ? colorScheme.onSecondaryContainer : null,
+                fontWeight: isHighlighted ? FontWeight.w600 : null,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

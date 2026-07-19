@@ -2,6 +2,7 @@ import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
+import 'package:esketit_music_console/esketit_rest_api/lyrics/esketit_rest_api_lyrics_search_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api_telegram_import_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_cookies_repository.dart';
@@ -20,6 +21,7 @@ import 'package:esketit_music_console/unassigned_layer/cross_file.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/lyrics/lyrics_search_repository.dart';
 import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
@@ -66,6 +68,11 @@ class AppRoot extends StatelessWidget {
           create: (_) => EsketitRestApiTracksStorage(
             authenticatedHttpClient: authenticatedHttpClient,
             baseUri: baseUri,
+          ),
+        ),
+        RepositoryProvider<LyricsSearchRepository>(
+          create: (_) => EsketitRestApiLyricsSearchRepository(
+            httpClient: authenticatedHttpClient,
           ),
         ),
         RepositoryProvider<TelegramImportRepository>(
