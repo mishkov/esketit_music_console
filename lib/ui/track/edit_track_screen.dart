@@ -2227,7 +2227,7 @@ class _SyncedLyricsCreatorState extends State<_SyncedLyricsCreator> {
   final FocusNode _panelFocusNode = FocusNode();
   final FocusNode _plainTextFocusNode = FocusNode();
   final ScrollController _submittedLinesScrollController = ScrollController();
-  int _delayMs = 200;
+  int _delayMs = 1000;
   late int _submittedLineCount;
 
   static const List<int> _delayOptions = [

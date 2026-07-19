@@ -168,6 +168,10 @@ void main() {
       _textFieldValue(tester, 'Plain text lyrics'),
       'Line to synchronize\nAnother line',
     );
+    final delayField = tester.widget<DropdownButtonFormField<int>>(
+      find.byType(DropdownButtonFormField<int>),
+    );
+    expect(delayField.initialValue, 1000);
     expect(_textFieldValue(tester, 'Source'), 'LRCLIB #12');
   });
 }
