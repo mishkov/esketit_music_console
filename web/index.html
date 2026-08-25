@@ -19,6 +19,46 @@
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
+  <meta name="theme-color" content="#111411">
+
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background-color: #111411;
+    }
+
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background-color: #111411;
+    }
+
+    .loading-indicator {
+      width: 48px;
+      height: 48px;
+      box-sizing: border-box;
+      border: 4px solid rgba(76, 175, 80, 0.28);
+      border-top-color: #4CAF50;
+      border-radius: 50%;
+      animation: loading-spin 800ms linear infinite;
+    }
+
+    @keyframes loading-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .loading-indicator {
+        animation-duration: 1600ms;
+      }
+    }
+  </style>
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -33,6 +73,10 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <div id="loading" role="status" aria-label="Loading Esketit Music">
+    <div class="loading-indicator" aria-hidden="true"></div>
+  </div>
+
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -41,6 +85,14 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var loading = document.getElementById('loading');
+      if (loading) {
+        loading.remove();
+      }
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
