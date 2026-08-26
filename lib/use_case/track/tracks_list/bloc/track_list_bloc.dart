@@ -8,8 +8,6 @@ sealed class TrackListEvent extends Equatable {
 }
 
 class LoadTracks extends TrackListEvent {
-  final int? page;
-  final int? pageSize;
   final String? query;
   final int? authorId;
   final int? albumId;
@@ -18,8 +16,6 @@ class LoadTracks extends TrackListEvent {
   final bool clearAlbumId;
 
   const LoadTracks({
-    this.page,
-    this.pageSize,
     this.query,
     this.authorId,
     this.albumId,
@@ -30,8 +26,6 @@ class LoadTracks extends TrackListEvent {
 
   @override
   List<Object?> get props => [
-    page,
-    pageSize,
     query,
     authorId,
     albumId,
@@ -39,6 +33,13 @@ class LoadTracks extends TrackListEvent {
     clearAuthorId,
     clearAlbumId,
   ];
+}
+
+class LoadMoreTracks extends TrackListEvent {
+  const LoadMoreTracks();
+
+  @override
+  List<Object?> get props => [];
 }
 
 class AddTrack extends TrackListEvent {
@@ -51,11 +52,15 @@ class AddTrack extends TrackListEvent {
 }
 
 class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
+  static const int _pageSize = 20;
+
   final TracksStorage _storage;
+  int _loadGeneration = 0;
 
   TrackListBloc(super.initialState, {required TracksStorage storage})
     : _storage = storage {
     on<LoadTracks>((event, emit) async {
+      final loadGeneration = ++_loadGeneration;
       final selectedQuery = event.query ?? state.query;
       final query = event.clearQuery ? null : selectedQuery?.trim();
       final normalizedQuery = query == null || query.isEmpty ? null : query;
@@ -65,12 +70,11 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
       final albumId = event.clearAlbumId
           ? null
           : event.albumId ?? state.albumId;
-      final pageSize = event.pageSize ?? state.pageSize;
-      final page = event.page ?? (event.pageSize != null ? 1 : state.page);
 
       emit(
         state.copyWith(
           isLoading: true,
+          isLoadingMore: false,
           errorMessage: null,
           setErrorMessage: true,
           query: normalizedQuery,
@@ -79,18 +83,21 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
           setAuthorId: true,
           albumId: albumId,
           setAlbumId: true,
-          page: page,
-          pageSize: pageSize,
+          page: 1,
+          pageSize: _pageSize,
         ),
       );
       try {
         final result = await _storage.getTracks(
-          page: page,
-          pageSize: pageSize,
+          page: 1,
+          pageSize: _pageSize,
           query: normalizedQuery,
           authorId: authorId,
           albumId: albumId,
         );
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
         emit(
           state.copyWith(
             tracks: result.tracks,
@@ -102,6 +109,9 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
           ),
         );
       } catch (error) {
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
         emit(
           state.copyWith(
             isLoading: false,
@@ -112,10 +122,65 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
       }
     });
 
+    on<LoadMoreTracks>((event, emit) async {
+      if (state.isLoading ||
+          state.isLoadingMore ||
+          state.totalPages == 0 ||
+          state.page >= state.totalPages) {
+        return;
+      }
+
+      final nextPage = state.page + 1;
+      final loadGeneration = _loadGeneration;
+      emit(
+        state.copyWith(
+          isLoadingMore: true,
+          errorMessage: null,
+          setErrorMessage: true,
+        ),
+      );
+
+      try {
+        final result = await _storage.getTracks(
+          page: nextPage,
+          pageSize: _pageSize,
+          query: state.query,
+          authorId: state.authorId,
+          albumId: state.albumId,
+        );
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
+        emit(
+          state.copyWith(
+            tracks: [...state.tracks, ...result.tracks],
+            page: result.page,
+            pageSize: result.pageSize,
+            totalItems: result.totalItems,
+            totalPages: result.totalPages,
+            isLoadingMore: false,
+          ),
+        );
+      } catch (error) {
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
+        emit(
+          state.copyWith(
+            isLoadingMore: false,
+            errorMessage: error.toString(),
+            setErrorMessage: true,
+          ),
+        );
+      }
+    });
+
     on<AddTrack>((event, emit) async {
+      final loadGeneration = ++_loadGeneration;
       emit(
         state.copyWith(
           isLoading: true,
+          isLoadingMore: false,
           errorMessage: null,
           setErrorMessage: true,
         ),
@@ -123,12 +188,15 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
       try {
         await _storage.putTrack(event.track);
         final result = await _storage.getTracks(
-          page: state.page,
-          pageSize: state.pageSize,
+          page: 1,
+          pageSize: _pageSize,
           query: state.query,
           authorId: state.authorId,
           albumId: state.albumId,
         );
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
         emit(
           state.copyWith(
             tracks: result.tracks,
@@ -140,6 +208,9 @@ class TrackListBloc extends Bloc<TrackListEvent, TrackListState> {
           ),
         );
       } catch (error) {
+        if (loadGeneration != _loadGeneration) {
+          return;
+        }
         emit(
           state.copyWith(
             isLoading: false,
@@ -162,6 +233,7 @@ class TrackListState extends Equatable {
   final int? authorId;
   final int? albumId;
   final bool isLoading;
+  final bool isLoadingMore;
   final String? errorMessage;
 
   const TrackListState({
@@ -174,6 +246,7 @@ class TrackListState extends Equatable {
     this.authorId,
     this.albumId,
     this.isLoading = false,
+    this.isLoadingMore = false,
     this.errorMessage,
   });
 
@@ -188,6 +261,7 @@ class TrackListState extends Equatable {
     authorId,
     albumId,
     isLoading,
+    isLoadingMore,
     errorMessage,
   ];
 
@@ -204,6 +278,7 @@ class TrackListState extends Equatable {
     int? albumId,
     bool setAlbumId = false,
     bool? isLoading,
+    bool? isLoadingMore,
     String? errorMessage,
     bool setErrorMessage = false,
   }) {
@@ -217,6 +292,7 @@ class TrackListState extends Equatable {
       authorId: setAuthorId ? authorId : this.authorId,
       albumId: setAlbumId ? albumId : this.albumId,
       isLoading: isLoading ?? this.isLoading,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       errorMessage: setErrorMessage ? errorMessage : this.errorMessage,
     );
   }
