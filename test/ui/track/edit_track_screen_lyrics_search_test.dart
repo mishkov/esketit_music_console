@@ -10,9 +10,33 @@ import 'package:esketit_music_console/use_case/track/storage/storage_albums_list
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('does not intercept text editing keys outside lyrics creator', (
+    tester,
+  ) async {
+    await _pumpScreen(
+      tester,
+      repository: _FakeLyricsSearchRepository(candidates: const []),
+    );
+
+    final titleField = tester.widget<TextField>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == 'Title',
+      ),
+    );
+    await tester.tap(find.byWidget(titleField));
+    titleField.controller!.selection = const TextSelection.collapsed(offset: 8);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+
+    expect(titleField.controller!.selection.extentOffset, 7);
+    expect(await tester.sendKeyEvent(LogicalKeyboardKey.space), isFalse);
+  });
+
   testWidgets('searches with current metadata and applies plain lyrics draft', (
     tester,
   ) async {

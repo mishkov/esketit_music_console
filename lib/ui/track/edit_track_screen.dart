@@ -87,232 +87,221 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   Widget build(BuildContext context) {
     final track = _track;
 
-    return CallbackShortcuts(
-      bindings: _screenShortcutBindings,
-      child: Focus(
-        autofocus: true,
-        child: Scaffold(
-          appBar: AppBar(title: const Text('Edit track')),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 860),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_isLoading || _isSaving)
-                        const LinearProgressIndicator(),
-                      if (_errorMessage != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      ],
+    return Focus(
+      autofocus: true,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Edit track')),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 860),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_isLoading || _isSaving)
+                      const LinearProgressIndicator(),
+                    if (_errorMessage != null) ...[
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _titleController,
-                        enabled: !_isLoading && !_isSaving,
-                        decoration: const InputDecoration(
-                          labelText: 'Title',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      AlbumPickerField(
-                        albums: _availableAlbums,
-                        selectedAlbum: _selectedAlbum,
-                        isLoading: _isLoading,
-                        enabled: !_isLoading && !_isSaving && track != null,
-                        onSelected: (album) {
-                          setState(() {
-                            _selectedAlbumId = album.id;
-                          });
-                        },
-                        onCreateNew: _openCreateAlbumScreen,
-                      ),
-                      const SizedBox(height: 12),
-                      _SelectionSummaryCard(
-                        title: 'Album position',
-                        value: _buildAlbumPositionLabel(),
-                      ),
-                      const SizedBox(height: 16),
-                      _AuthorPickerField(
-                        authors: _selectedAuthors,
-                        isLoading: _isLoading,
-                        onTap: _isLoading || _isSaving
-                            ? null
-                            : _showAuthorPicker,
-                        onRemove: _isLoading || _isSaving
-                            ? null
-                            : _removeAuthor,
-                      ),
-                      const SizedBox(height: 24),
                       Text(
-                        'Audio file',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      _SelectionSummaryCard(
-                        title: _replacementFile == null
-                            ? 'Current file'
-                            : 'Replacement file',
-                        value: _buildFileLabel(),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          FilledButton.tonalIcon(
-                            onPressed: _isLoading || _isSaving
-                                ? null
-                                : _pickFile,
-                            icon: const Icon(Icons.upload_file),
-                            label: Text(
-                              _replacementFile == null
-                                  ? 'Replace file'
-                                  : 'Pick another file',
-                            ),
-                          ),
-                          if (_replacementFile != null)
-                            TextButton(
-                              onPressed: _isSaving
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        _replacementFile = null;
-                                      });
-                                    },
-                              child: const Text('Keep current file'),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Lyrics',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 12),
-                      _LyricsSection(
-                        hasLyrics: _hasLyrics,
-                        hasPersistedLyrics: _hasPersistedLyrics,
-                        lyricsType: _lyricsType,
-                        languageCodeController: _lyricsLanguageCodeController,
-                        sourceController: _lyricsSourceController,
-                        plainTextController: _lyricsPlainTextController,
-                        lyricsIsVerified: _lyricsIsVerified,
-                        lyricsLines: _lyricsLines,
-                        isLoading: _isLoading,
-                        isSaving: _isSaving,
-                        onStartPlainLyrics: () =>
-                            _startLyricsDraft(TrackLyricsType.plain),
-                        onStartSyncedLyrics: () =>
-                            _startLyricsDraft(TrackLyricsType.synced),
-                        onImportPlainLyrics: _importPlainLyrics,
-                        onImportSyncedLyrics: _importSyncedLyrics,
-                        onStartSyncedLyricsCreator: _startSyncedLyricsCreator,
-                        onLyricsTypeChanged: (type) {
-                          setState(() {
-                            _lyricsType = type;
-                            _isSyncedLyricsCreatorVisible = false;
-                            if (_lyricsType == TrackLyricsType.synced &&
-                                _lyricsLines.isEmpty) {
-                              _lyricsLines.add(_createLyricsLine());
-                            }
-                          });
-                        },
-                        onLyricsVerifiedChanged: (value) {
-                          setState(() {
-                            _lyricsIsVerified = value;
-                          });
-                        },
-                        onLyricsLineChanged: (index, updatedLine) {
-                          setState(() {
-                            _lyricsLines[index] = updatedLine;
-                          });
-                        },
-                        onLyricsLineMoveUp: (index) =>
-                            _moveLyricsLine(index, -1),
-                        onLyricsLineMoveDown: (index) =>
-                            _moveLyricsLine(index, 1),
-                        onLyricsLineDelete: _removeLyricsLine,
-                        onAddLyricsLine: () {
-                          setState(() {
-                            _lyricsLines.add(_createLyricsLine());
-                          });
-                        },
-                        isSyncedLyricsCreatorVisible:
-                            _isSyncedLyricsCreatorVisible,
-                        syncedLyricsCreatorKey: _syncedLyricsCreatorKey,
-                        trackFile: _replacementFile ?? _track?.file,
-                        onCreatedLyricsLineSubmitted: _addCreatedLyricsLine,
-                        onCreatedLyricsLineCanceled: _cancelCreatedLyricsLine,
-                        onDeleteLyrics: _deleteLyrics,
-                        isSearchingLyrics: _isSearchingLyrics,
-                        lyricsSearchCandidates: _lyricsSearchCandidates,
-                        selectedLyricsSearchCandidateIndex:
-                            _selectedLyricsSearchCandidateIndex,
-                        lyricsSearchError: _lyricsSearchError,
-                        lyricsSearchAudioController:
-                            _lyricsSearchAudioController,
-                        onSearchLyrics: _searchLyrics,
-                        onPreviousLyricsSearchCandidate:
-                            _showPreviousLyricsSearchCandidate,
-                        onNextLyricsSearchCandidate:
-                            _showNextLyricsSearchCandidate,
-                        onApplyPlainLyricsSearchCandidate:
-                            _applyPlainLyricsSearchCandidate,
-                        onSynchronizeLyricsSearchCandidate:
-                            _synchronizeLyricsSearchCandidate,
-                        onApplySyncedLyricsSearchCandidate:
-                            _applySyncedLyricsSearchCandidate,
-                      ),
-                      const SizedBox(height: 24),
-                      TrackMetadataEditor(
-                        additionalInfo: _additionalInfos,
-                        sourceMetadata: _sourceMetadata,
-                        enabled: !_isLoading && !_isSaving,
-                        onAdditionalInfoChanged: (items) {
-                          setState(() {
-                            _additionalInfos
-                              ..clear()
-                              ..addAll(items);
-                          });
-                        },
-                        onSourceMetadataChanged: (items) {
-                          setState(() {
-                            _sourceMetadata
-                              ..clear()
-                              ..addAll(items);
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          TextButton.icon(
-                            onPressed: _isLoading || _isSaving || track == null
-                                ? null
-                                : _deleteTrack,
-                            icon: const Icon(Icons.delete_outline),
-                            label: const Text('Delete track'),
-                          ),
-                          const Spacer(),
-                          FilledButton(
-                            onPressed: _isLoading || _isSaving || track == null
-                                ? null
-                                : _saveTrack,
-                            child: const Text('Save'),
-                          ),
-                        ],
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _titleController,
+                      enabled: !_isLoading && !_isSaving,
+                      decoration: const InputDecoration(
+                        labelText: 'Title',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AlbumPickerField(
+                      albums: _availableAlbums,
+                      selectedAlbum: _selectedAlbum,
+                      isLoading: _isLoading,
+                      enabled: !_isLoading && !_isSaving && track != null,
+                      onSelected: (album) {
+                        setState(() {
+                          _selectedAlbumId = album.id;
+                        });
+                      },
+                      onCreateNew: _openCreateAlbumScreen,
+                    ),
+                    const SizedBox(height: 12),
+                    _SelectionSummaryCard(
+                      title: 'Album position',
+                      value: _buildAlbumPositionLabel(),
+                    ),
+                    const SizedBox(height: 16),
+                    _AuthorPickerField(
+                      authors: _selectedAuthors,
+                      isLoading: _isLoading,
+                      onTap: _isLoading || _isSaving ? null : _showAuthorPicker,
+                      onRemove: _isLoading || _isSaving ? null : _removeAuthor,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Audio file',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    _SelectionSummaryCard(
+                      title: _replacementFile == null
+                          ? 'Current file'
+                          : 'Replacement file',
+                      value: _buildFileLabel(),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _isLoading || _isSaving ? null : _pickFile,
+                          icon: const Icon(Icons.upload_file),
+                          label: Text(
+                            _replacementFile == null
+                                ? 'Replace file'
+                                : 'Pick another file',
+                          ),
+                        ),
+                        if (_replacementFile != null)
+                          TextButton(
+                            onPressed: _isSaving
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _replacementFile = null;
+                                    });
+                                  },
+                            child: const Text('Keep current file'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Lyrics',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    _LyricsSection(
+                      hasLyrics: _hasLyrics,
+                      hasPersistedLyrics: _hasPersistedLyrics,
+                      lyricsType: _lyricsType,
+                      languageCodeController: _lyricsLanguageCodeController,
+                      sourceController: _lyricsSourceController,
+                      plainTextController: _lyricsPlainTextController,
+                      lyricsIsVerified: _lyricsIsVerified,
+                      lyricsLines: _lyricsLines,
+                      isLoading: _isLoading,
+                      isSaving: _isSaving,
+                      onStartPlainLyrics: () =>
+                          _startLyricsDraft(TrackLyricsType.plain),
+                      onStartSyncedLyrics: () =>
+                          _startLyricsDraft(TrackLyricsType.synced),
+                      onImportPlainLyrics: _importPlainLyrics,
+                      onImportSyncedLyrics: _importSyncedLyrics,
+                      onStartSyncedLyricsCreator: _startSyncedLyricsCreator,
+                      onLyricsTypeChanged: (type) {
+                        setState(() {
+                          _lyricsType = type;
+                          _isSyncedLyricsCreatorVisible = false;
+                          if (_lyricsType == TrackLyricsType.synced &&
+                              _lyricsLines.isEmpty) {
+                            _lyricsLines.add(_createLyricsLine());
+                          }
+                        });
+                      },
+                      onLyricsVerifiedChanged: (value) {
+                        setState(() {
+                          _lyricsIsVerified = value;
+                        });
+                      },
+                      onLyricsLineChanged: (index, updatedLine) {
+                        setState(() {
+                          _lyricsLines[index] = updatedLine;
+                        });
+                      },
+                      onLyricsLineMoveUp: (index) => _moveLyricsLine(index, -1),
+                      onLyricsLineMoveDown: (index) =>
+                          _moveLyricsLine(index, 1),
+                      onLyricsLineDelete: _removeLyricsLine,
+                      onAddLyricsLine: () {
+                        setState(() {
+                          _lyricsLines.add(_createLyricsLine());
+                        });
+                      },
+                      isSyncedLyricsCreatorVisible:
+                          _isSyncedLyricsCreatorVisible,
+                      syncedLyricsCreatorKey: _syncedLyricsCreatorKey,
+                      trackFile: _replacementFile ?? _track?.file,
+                      onCreatedLyricsLineSubmitted: _addCreatedLyricsLine,
+                      onCreatedLyricsLineCanceled: _cancelCreatedLyricsLine,
+                      onDeleteLyrics: _deleteLyrics,
+                      isSearchingLyrics: _isSearchingLyrics,
+                      lyricsSearchCandidates: _lyricsSearchCandidates,
+                      selectedLyricsSearchCandidateIndex:
+                          _selectedLyricsSearchCandidateIndex,
+                      lyricsSearchError: _lyricsSearchError,
+                      lyricsSearchAudioController: _lyricsSearchAudioController,
+                      onSearchLyrics: _searchLyrics,
+                      onPreviousLyricsSearchCandidate:
+                          _showPreviousLyricsSearchCandidate,
+                      onNextLyricsSearchCandidate:
+                          _showNextLyricsSearchCandidate,
+                      onApplyPlainLyricsSearchCandidate:
+                          _applyPlainLyricsSearchCandidate,
+                      onSynchronizeLyricsSearchCandidate:
+                          _synchronizeLyricsSearchCandidate,
+                      onApplySyncedLyricsSearchCandidate:
+                          _applySyncedLyricsSearchCandidate,
+                    ),
+                    const SizedBox(height: 24),
+                    TrackMetadataEditor(
+                      additionalInfo: _additionalInfos,
+                      sourceMetadata: _sourceMetadata,
+                      enabled: !_isLoading && !_isSaving,
+                      onAdditionalInfoChanged: (items) {
+                        setState(() {
+                          _additionalInfos
+                            ..clear()
+                            ..addAll(items);
+                        });
+                      },
+                      onSourceMetadataChanged: (items) {
+                        setState(() {
+                          _sourceMetadata
+                            ..clear()
+                            ..addAll(items);
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: _isLoading || _isSaving || track == null
+                              ? null
+                              : _deleteTrack,
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Delete track'),
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: _isLoading || _isSaving || track == null
+                              ? null
+                              : _saveTrack,
+                          child: const Text('Save'),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -320,60 +309,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
         ),
       ),
     );
-  }
-
-  Map<ShortcutActivator, VoidCallback> get _screenShortcutBindings => {
-    const SingleActivator(LogicalKeyboardKey.arrowLeft):
-        _seekSyncedLyricsCreatorBack,
-    const SingleActivator(LogicalKeyboardKey.space):
-        _toggleSyncedLyricsCreatorPlayback,
-    const SingleActivator(LogicalKeyboardKey.arrowRight):
-        _seekSyncedLyricsCreatorForward,
-    const SingleActivator(LogicalKeyboardKey.enter):
-        _submitSyncedLyricsCreatorLine,
-    const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-        _cancelSyncedLyricsCreatorLine,
-    const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-        _cancelSyncedLyricsCreatorLine,
-  };
-
-  bool get _canUseSyncedLyricsCreatorShortcuts {
-    return _isSyncedLyricsCreatorVisible && !_isSaving && !_isLoading;
-  }
-
-  void _seekSyncedLyricsCreatorBack() {
-    if (!_canUseSyncedLyricsCreatorShortcuts) {
-      return;
-    }
-    _syncedLyricsCreatorKey.currentState?._seekBackFromShortcut();
-  }
-
-  void _seekSyncedLyricsCreatorForward() {
-    if (!_canUseSyncedLyricsCreatorShortcuts) {
-      return;
-    }
-    _syncedLyricsCreatorKey.currentState?._seekForwardFromShortcut();
-  }
-
-  void _toggleSyncedLyricsCreatorPlayback() {
-    if (!_canUseSyncedLyricsCreatorShortcuts) {
-      return;
-    }
-    _syncedLyricsCreatorKey.currentState?._playPauseFromShortcut();
-  }
-
-  void _submitSyncedLyricsCreatorLine() {
-    if (!_canUseSyncedLyricsCreatorShortcuts) {
-      return;
-    }
-    _syncedLyricsCreatorKey.currentState?._submitNextLine();
-  }
-
-  void _cancelSyncedLyricsCreatorLine() {
-    if (!_canUseSyncedLyricsCreatorShortcuts) {
-      return;
-    }
-    _syncedLyricsCreatorKey.currentState?._cancelLastLine();
   }
 
   Future<void> _loadTrack() async {
