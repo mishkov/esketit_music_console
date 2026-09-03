@@ -11,6 +11,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+const _enableSentryVerification = bool.fromEnvironment('SENTRY_VERIFY_SETUP');
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -104,6 +106,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _SettingsCard(
                         title: 'YouTube Cookies',
                         child: _buildYouTubeCookiesSection(context),
+                      ),
+                    ],
+                    if (_enableSentryVerification) ...[
+                      const SizedBox(height: 16),
+                      _SettingsCard(
+                        title: 'Sentry',
+                        child: FilledButton(
+                          onPressed: () {
+                            throw StateError('Sentry setup verification');
+                          },
+                          child: const Text('Verify Sentry setup'),
+                        ),
                       ),
                     ],
                   ],

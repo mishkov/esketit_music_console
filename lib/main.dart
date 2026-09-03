@@ -7,6 +7,7 @@ import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
 import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_cookies_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_import_repository.dart';
+import 'package:esketit_music_console/observability/sentry_import_repositories.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
@@ -29,10 +30,43 @@ import 'package:esketit_music_console/use_case/youtube/youtube_import_repository
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
+
+const _sentryDsn = String.fromEnvironment(
+  'SENTRY_DSN',
+  defaultValue:
+      'https://58c2b3d1c61cb0eb6d388eee78610233@o4504197551554560.ingest.us.sentry.io/4512018545049600',
+);
+const _sentryEnvironment = String.fromEnvironment('SENTRY_ENVIRONMENT');
+const _sentryTracesSampleRateValue = String.fromEnvironment(
+  'SENTRY_TRACES_SAMPLE_RATE',
+  defaultValue: '1.0',
+);
+
+final _sentryNavigatorObserver = SentryNavigatorObserver();
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const AppRoot());
+  final configuredTracesSampleRate = double.tryParse(
+    _sentryTracesSampleRateValue,
+  );
+  final tracesSampleRate =
+      configuredTracesSampleRate != null &&
+          configuredTracesSampleRate >= 0 &&
+          configuredTracesSampleRate <= 1
+      ? configuredTracesSampleRate
+      : 1.0;
+
+  await SentryFlutter.init((options) {
+    options
+      ..dsn = _sentryDsn
+      ..tracesSampleRate = tracesSampleRate
+      ..enableLogs = true
+      ..sendDefaultPii = false;
+    if (_sentryEnvironment.isNotEmpty) {
+      options.environment = _sentryEnvironment;
+    }
+    options.addInAppInclude('esketit_music_console');
+  }, appRunner: () => runApp(SentryWidget(child: const AppRoot())));
 }
 
 class AppRoot extends StatelessWidget {
@@ -75,14 +109,18 @@ class AppRoot extends StatelessWidget {
           ),
         ),
         RepositoryProvider<TelegramImportRepository>(
-          create: (_) => EsketitRestApiTelegramImportRepository(
-            httpClient: authenticatedHttpClient,
+          create: (_) => SentryTelegramImportRepository(
+            delegate: EsketitRestApiTelegramImportRepository(
+              httpClient: authenticatedHttpClient,
+            ),
           ),
         ),
         RepositoryProvider<YouTubeImportRepository>(
-          create: (_) => EsketitRestApiYouTubeImportRepository(
-            httpClient: authenticatedHttpClient,
-            baseUri: baseUri,
+          create: (_) => SentryYouTubeImportRepository(
+            delegate: EsketitRestApiYouTubeImportRepository(
+              httpClient: authenticatedHttpClient,
+              baseUri: baseUri,
+            ),
           ),
         ),
         RepositoryProvider<YouTubeCookiesRepository>(
@@ -121,6 +159,7 @@ class MainApp extends StatelessWidget {
       builder: (context, themePreference) {
         return MaterialApp(
           title: 'Esketit Music',
+          navigatorObservers: [_sentryNavigatorObserver],
           theme: ThemeData(colorSchemeSeed: Colors.green, useMaterial3: true),
           darkTheme: ThemeData(
             colorSchemeSeed: Colors.green,
