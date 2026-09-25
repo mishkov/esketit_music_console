@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:esketit_music_console/domain/auth/app_user.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
+import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/use_case/auth/auth_session_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -30,11 +31,20 @@ class SharedPreferencesAuthSessionStorage implements AuthSessionStorage {
       user: AppUser(
         id: (userJson['id'] as num).toInt(),
         email: userJson['email'] as String,
-        role: AppUserRole.values.firstWhere(
-          (role) => role.name == userJson['role'],
-          orElse: () => AppUserRole.listener,
-        ),
         createdAt: DateTime.parse(userJson['createdAt'] as String),
+        roles: (userJson['roles'] as List)
+            .map(
+              (item) =>
+                  AccessRole.fromJson(Map<String, dynamic>.from(item as Map)),
+            )
+            .toList(growable: false),
+        permissions: (userJson['permissions'] as List)
+            .map(
+              (item) => AccessPermission.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(growable: false),
       ),
       accessToken: decoded['accessToken'] as String,
       accessTokenExpiresAt: DateTime.parse(
@@ -56,8 +66,11 @@ class SharedPreferencesAuthSessionStorage implements AuthSessionStorage {
         'user': {
           'id': session.user.id,
           'email': session.user.email,
-          'role': session.user.role.name,
           'createdAt': session.user.createdAt.toIso8601String(),
+          'roles': session.user.roles.map((role) => role.toJson()).toList(),
+          'permissions': session.user.permissions
+              .map((permission) => permission.toJson())
+              .toList(),
         },
         'accessToken': session.accessToken,
         'accessTokenExpiresAt': session.accessTokenExpiresAt.toIso8601String(),

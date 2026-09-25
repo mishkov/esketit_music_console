@@ -1,5 +1,6 @@
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/esketit_rest_api/access_control/esketit_rest_api_access_control_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/lyrics/esketit_rest_api_lyrics_search_repository.dart';
@@ -8,6 +9,7 @@ import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tr
 import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_cookies_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/youtube/esketit_rest_api_youtube_import_repository.dart';
 import 'package:esketit_music_console/observability/sentry_import_repositories.dart';
+import 'package:esketit_music_console/ui/access_control/access_control_screen.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
@@ -19,6 +21,7 @@ import 'package:esketit_music_console/ui/track/edit_track_screen.dart';
 import 'package:esketit_music_console/ui/utilities/utilities_screen.dart';
 import 'package:esketit_music_console/unassigned_layer/http_package_http_client.dart';
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
+import 'package:esketit_music_console/use_case/access_control/access_control_repository.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/lyrics/lyrics_search_repository.dart';
 import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
@@ -97,6 +100,11 @@ class AppRoot extends StatelessWidget {
 
     return MultiRepositoryProvider(
       providers: [
+        RepositoryProvider<AccessControlRepository>(
+          create: (_) => EsketitRestApiAccessControlRepository(
+            httpClient: authenticatedHttpClient,
+          ),
+        ),
         RepositoryProvider<TracksStorage>(
           create: (_) => EsketitRestApiTracksStorage(
             authenticatedHttpClient: authenticatedHttpClient,
@@ -167,6 +175,9 @@ class MainApp extends StatelessWidget {
             useMaterial3: true,
           ),
           themeMode: themePreference.themeMode,
+          routes: {
+            AccessControlRoute.routeName: (_) => const AccessControlRoute(),
+          },
           home: BlocBuilder<AuthBloc, AuthState>(
             builder: (context, state) {
               switch (state.status) {
@@ -524,43 +535,62 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _buildNavigationRail(BuildContext context) {
+    final canManageAccessControl = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.hasPermission(
+            accessControlManagePermission,
+          ) ??
+          false,
+    );
+    final accessControlIndex = _MainDestination.values.length;
+    final signOutIndex = accessControlIndex + (canManageAccessControl ? 1 : 0);
     return NavigationRail(
       selectedIndex: _destination.index,
       onDestinationSelected: (index) {
-        if (index == _MainDestination.values.length) {
+        if (canManageAccessControl && index == accessControlIndex) {
+          Navigator.of(context).pushNamed(AccessControlRoute.routeName);
+          return;
+        }
+        if (index == signOutIndex) {
           _confirmSignOut();
           return;
         }
         _selectDestination(index);
       },
       labelType: NavigationRailLabelType.all,
-      destinations: const [
-        NavigationRailDestination(
+      destinations: [
+        const NavigationRailDestination(
           icon: Icon(Icons.music_note_outlined),
           selectedIcon: Icon(Icons.music_note),
           label: Text('Tracks'),
         ),
-        NavigationRailDestination(
+        const NavigationRailDestination(
           icon: Icon(Icons.album_outlined),
           selectedIcon: Icon(Icons.album),
           label: Text('Albums'),
         ),
-        NavigationRailDestination(
+        const NavigationRailDestination(
           icon: Icon(Icons.people_outline),
           selectedIcon: Icon(Icons.people),
           label: Text('Authors'),
         ),
-        NavigationRailDestination(
+        const NavigationRailDestination(
           icon: Icon(Icons.build_outlined),
           selectedIcon: Icon(Icons.build),
           label: Text('Utilities'),
         ),
-        NavigationRailDestination(
+        const NavigationRailDestination(
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings),
           label: Text('Settings'),
         ),
-        NavigationRailDestination(
+        if (canManageAccessControl)
+          const NavigationRailDestination(
+            icon: Icon(Icons.shield_outlined),
+            selectedIcon: Icon(Icons.shield),
+            label: Text('Access Control'),
+          ),
+        const NavigationRailDestination(
           icon: Icon(Icons.logout),
           label: Text('Sign out'),
         ),
@@ -569,10 +599,21 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _buildNavigationDrawer(BuildContext context, String? userEmail) {
+    final canManageAccessControl = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.hasPermission(
+            accessControlManagePermission,
+          ) ??
+          false,
+    );
     return NavigationDrawer(
       selectedIndex: _destination.index,
       onDestinationSelected: (index) {
         Navigator.of(context).pop();
+        if (canManageAccessControl && index == _MainDestination.values.length) {
+          Navigator.of(context).pushNamed(AccessControlRoute.routeName);
+          return;
+        }
         _selectDestination(index);
       },
       children: [
@@ -620,6 +661,12 @@ class _MainShellState extends State<MainShell> {
           selectedIcon: Icon(Icons.settings),
           label: Text('Settings'),
         ),
+        if (canManageAccessControl)
+          const NavigationDrawerDestination(
+            icon: Icon(Icons.shield_outlined),
+            selectedIcon: Icon(Icons.shield),
+            label: Text('Access Control'),
+          ),
         const Divider(indent: 12, endIndent: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),

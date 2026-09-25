@@ -54,9 +54,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isAdmin =
-        context.select((AuthBloc bloc) => bloc.state.session?.user.isAdmin) ??
-        false;
+    final canManageYouTube = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.hasPermission(
+            'integrations.youtube.manage',
+          ) ??
+          false,
+    );
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -101,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'Telegram Integration',
                       child: _buildTelegramSection(context),
                     ),
-                    if (isAdmin) ...[
+                    if (canManageYouTube) ...[
                       const SizedBox(height: 16),
                       _SettingsCard(
                         title: 'YouTube Cookies',

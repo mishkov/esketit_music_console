@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:esketit_music_console/domain/auth/app_user.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
+import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/esketit_rest_api/http_client.dart';
@@ -40,12 +41,7 @@ class EsketitRestApiAuthRepository implements AuthRepository {
       return null;
     }
 
-    final meResponse = await _authenticatedHttpClient.get('/auth/me');
-    final meBody = _decodeJsonMap(meResponse.response, path: '/auth/me');
-    final user = _parseUser(meBody);
-    final restoredSession = refreshedSession.copyWith(user: user);
-    await _persistSession(restoredSession);
-    return restoredSession;
+    return refreshCurrentUser();
   }
 
   @override
@@ -117,6 +113,28 @@ class EsketitRestApiAuthRepository implements AuthRepository {
     }
   }
 
+  @override
+  Future<AuthSession?> refreshCurrentUser() async {
+    final session = await refreshSession();
+    if (session == null) {
+      return null;
+    }
+
+    try {
+      final response = await _authenticatedHttpClient.get('/auth/me');
+      final body = _decodeJsonMap(response.response, path: '/auth/me');
+      final refreshedSession = session.copyWith(user: _parseUser(body));
+      await _persistSession(refreshedSession);
+      return refreshedSession;
+    } on UnauthorizedAppError {
+      await _clearSession();
+      return null;
+    } on ForbiddenAppError {
+      await _clearSession();
+      return null;
+    }
+  }
+
   Future<void> _persistSession(AuthSession session) async {
     _cachedSession = session;
     await _sessionStorage.write(session);
@@ -159,11 +177,17 @@ class EsketitRestApiAuthRepository implements AuthRepository {
     return AppUser(
       id: (json['id'] as num).toInt(),
       email: json['email'] as String,
-      role: AppUserRole.values.firstWhere(
-        (role) => role.name == json['role'],
-        orElse: () => AppUserRole.listener,
-      ),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      roles: _jsonList(
+        json['roles'],
+        path: '/auth/user',
+        fieldName: 'roles',
+      ).map(AccessRole.fromJson).toList(growable: false),
+      permissions: _jsonList(
+        json['permissions'],
+        path: '/auth/user',
+        fieldName: 'permissions',
+      ).map(AccessPermission.fromJson).toList(growable: false),
     );
   }
 
@@ -188,6 +212,22 @@ class EsketitRestApiAuthRepository implements AuthRepository {
     }
 
     return value;
+  }
+
+  List<Map<String, dynamic>> _jsonList(
+    Object? value, {
+    required String path,
+    required String fieldName,
+  }) {
+    if (value is! List) {
+      throw AppError(
+        'Expected "$fieldName" to be a JSON array for $path',
+        cause: value,
+      );
+    }
+    return value
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(growable: false);
   }
 
   void _throwIfUnauthorizedOrForbidden(

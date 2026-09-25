@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/auth/app_user.dart';
@@ -228,8 +229,16 @@ Future<void> _pumpScreen(
         user: AppUser(
           id: 1,
           email: 'admin@example.com',
-          role: AppUserRole.admin,
           createdAt: DateTime.utc(2026, 1, 1),
+          roles: const [],
+          permissions: [
+            AccessPermission(
+              id: 1,
+              code: 'integrations.youtube.manage',
+              description: 'Manage YouTube',
+              createdAt: DateTime.utc(2026, 1, 1),
+            ),
+          ],
         ),
         accessToken: 'token',
         accessTokenExpiresAt: DateTime.utc(2099, 1, 1),
@@ -382,6 +391,9 @@ class _FakeAuthRepository implements AuthRepository {
   @override
   Future<AuthSession?> refreshSession({bool forceRefresh = false}) async =>
       session;
+
+  @override
+  Future<AuthSession?> refreshCurrentUser() async => session;
 }
 
 class _FakeTracksStorage implements TracksStorage {

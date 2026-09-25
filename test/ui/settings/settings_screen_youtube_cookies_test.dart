@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/domain/auth/app_user.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
@@ -48,7 +49,7 @@ void main() {
 
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.admin),
+      authRepository: const _FakeAuthRepository(canManageYouTube: true),
       youtubeRepository: youtubeRepository,
     );
 
@@ -84,7 +85,7 @@ void main() {
 
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.admin),
+      authRepository: const _FakeAuthRepository(canManageYouTube: true),
       youtubeRepository: youtubeRepository,
     );
 
@@ -115,7 +116,7 @@ void main() {
 
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.admin),
+      authRepository: const _FakeAuthRepository(canManageYouTube: true),
       youtubeRepository: youtubeRepository,
     );
 
@@ -150,7 +151,7 @@ void main() {
 
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.admin),
+      authRepository: const _FakeAuthRepository(canManageYouTube: true),
       youtubeRepository: youtubeRepository,
     );
 
@@ -168,7 +169,7 @@ void main() {
   ) async {
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.listener),
+      authRepository: const _FakeAuthRepository(canManageYouTube: false),
       youtubeRepository: _FakeYouTubeCookiesRepository(
         currentStatus: const YouTubeCookiesStatus(
           configured: true,
@@ -186,7 +187,7 @@ void main() {
 
     await _pumpScreen(
       tester,
-      authRepository: _FakeAuthRepository(role: AppUserRole.listener),
+      authRepository: const _FakeAuthRepository(canManageYouTube: false),
       youtubeRepository: _FakeYouTubeCookiesRepository(
         currentStatus: const YouTubeCookiesStatus(
           configured: true,
@@ -248,16 +249,26 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
 }
 
 class _FakeAuthRepository implements AuthRepository {
-  const _FakeAuthRepository({required this.role});
+  const _FakeAuthRepository({required this.canManageYouTube});
 
-  final AppUserRole role;
+  final bool canManageYouTube;
 
   AuthSession get _session => AuthSession(
     user: AppUser(
       id: 1,
       email: 'admin@example.com',
-      role: role,
       createdAt: DateTime.utc(2026, 1, 1),
+      roles: const [],
+      permissions: canManageYouTube
+          ? [
+              AccessPermission(
+                id: 1,
+                code: 'integrations.youtube.manage',
+                description: 'Manage YouTube',
+                createdAt: DateTime.utc(2026, 1, 1),
+              ),
+            ]
+          : const [],
     ),
     accessToken: 'token',
     accessTokenExpiresAt: DateTime.utc(2099, 1, 1),
@@ -280,6 +291,9 @@ class _FakeAuthRepository implements AuthRepository {
   @override
   Future<AuthSession?> refreshSession({bool forceRefresh = false}) async =>
       _session;
+
+  @override
+  Future<AuthSession?> refreshCurrentUser() async => _session;
 }
 
 class _FakeTelegramImportRepository implements TelegramImportRepository {

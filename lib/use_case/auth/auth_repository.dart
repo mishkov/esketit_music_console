@@ -8,4 +8,6 @@ abstract class AuthRepository {
   Future<void> signOut();
 
   Future<AuthSession?> refreshSession({bool forceRefresh = false});
+
+  Future<AuthSession?> refreshCurrentUser();
 }

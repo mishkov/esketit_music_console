@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
 import 'package:esketit_music_console/errors/app_error.dart';
@@ -31,6 +33,12 @@ class AuthSignOutRequested extends AuthEvent {
   const AuthSignOutRequested();
 }
 
+class AuthCurrentUserRefreshRequested extends AuthEvent {
+  const AuthCurrentUserRefreshRequested({this.completer});
+
+  final Completer<AuthSession?>? completer;
+}
+
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({required AuthRepository authRepository})
     : _authRepository = authRepository,
@@ -38,9 +46,46 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthSessionRestoreRequested>(_onRestoreRequested);
     on<AuthSignInRequested>(_onSignInRequested);
     on<AuthSignOutRequested>(_onSignOutRequested);
+    on<AuthCurrentUserRefreshRequested>(_onCurrentUserRefreshRequested);
   }
 
   final AuthRepository _authRepository;
+
+  Future<AuthSession?> refreshCurrentUser() {
+    final completer = Completer<AuthSession?>();
+    add(AuthCurrentUserRefreshRequested(completer: completer));
+    return completer.future;
+  }
+
+  Future<void> _onCurrentUserRefreshRequested(
+    AuthCurrentUserRefreshRequested event,
+    Emitter<AuthState> emit,
+  ) async {
+    try {
+      final session = await _authRepository.refreshCurrentUser();
+      if (session == null) {
+        emit(
+          state.copyWith(
+            status: AuthStatus.unauthenticated,
+            clearSession: true,
+            clearFailure: true,
+          ),
+        );
+      } else {
+        emit(
+          state.copyWith(
+            status: AuthStatus.authenticated,
+            session: session,
+            clearFailure: true,
+          ),
+        );
+      }
+      event.completer?.complete(session);
+    } catch (error, stackTrace) {
+      emit(state.copyWith(failure: _toFailure(error, stackTrace)));
+      event.completer?.completeError(error, stackTrace);
+    }
+  }
 
   Future<void> _onRestoreRequested(
     AuthSessionRestoreRequested event,

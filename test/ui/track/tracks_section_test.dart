@@ -1,4 +1,6 @@
 import 'package:esketit_music_console/domain/album.dart';
+import 'package:esketit_music_console/domain/access_control.dart';
+import 'package:esketit_music_console/domain/auth/app_user.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/track.dart';
@@ -16,6 +18,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('shows Access Control only with the management permission', (
+    tester,
+  ) async {
+    await _pumpMainShell(
+      tester,
+      size: const Size(1000, 800),
+      authSession: _authSession(canManageAccessControl: true),
+    );
+    expect(find.text('Access Control'), findsOneWidget);
+
+    await _pumpMainShell(
+      tester,
+      size: const Size(1000, 800),
+      authSession: _authSession(canManageAccessControl: false),
+    );
+    expect(find.text('Access Control'), findsNothing);
+  });
+
   testWidgets('applies app bar search only when Enter is pressed', (
     tester,
   ) async {
@@ -150,6 +170,7 @@ Future<_TestHarness> _pumpMainShell(
   WidgetTester tester, {
   required Size size,
   TrackListState initialTrackListState = const TrackListState(tracks: []),
+  AuthSession? authSession,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -158,7 +179,12 @@ Future<_TestHarness> _pumpMainShell(
 
   final storage = _FakeTracksStorage();
   final trackListBloc = TrackListBloc(initialTrackListState, storage: storage);
-  final authBloc = AuthBloc(authRepository: _FakeAuthRepository());
+  final authBloc = AuthBloc(
+    authRepository: _FakeAuthRepository(session: authSession),
+  );
+  if (authSession != null) {
+    authBloc.add(const AuthSessionRestoreRequested());
+  }
   addTearDown(trackListBloc.close);
   addTearDown(authBloc.close);
 
@@ -187,8 +213,37 @@ class _TestHarness {
 }
 
 class _FakeAuthRepository extends Fake implements AuthRepository {
+  _FakeAuthRepository({this.session});
+
+  final AuthSession? session;
+
   @override
-  Future<AuthSession?> restoreSession() async => null;
+  Future<AuthSession?> restoreSession() async => session;
+}
+
+AuthSession _authSession({required bool canManageAccessControl}) {
+  return AuthSession(
+    user: AppUser(
+      id: 1,
+      email: 'user@example.com',
+      createdAt: DateTime.utc(2026, 1, 1),
+      roles: const [],
+      permissions: canManageAccessControl
+          ? [
+              AccessPermission(
+                id: 1,
+                code: 'access_control.manage',
+                description: 'Manage access control',
+                createdAt: DateTime.utc(2026, 1, 1),
+              ),
+            ]
+          : const [],
+    ),
+    accessToken: 'token',
+    accessTokenExpiresAt: DateTime.utc(2099, 1, 1),
+    refreshToken: 'refresh',
+    refreshTokenExpiresAt: DateTime.utc(2099, 1, 2),
+  );
 }
 
 class _FakeTracksStorage extends Fake implements TracksStorage {

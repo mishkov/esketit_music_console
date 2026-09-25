@@ -39,20 +39,24 @@ class AddTracksScreen extends StatefulWidget {
 class _AddTracksScreenState extends State<AddTracksScreen> {
   @override
   Widget build(BuildContext context) {
-    final isAdmin =
-        context.select((AuthBloc bloc) => bloc.state.session?.user.isAdmin) ??
-        false;
+    final canManageYouTube = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.hasPermission(
+            'integrations.youtube.manage',
+          ) ??
+          false,
+    );
     final tabs = [
       const Tab(text: 'Upload single file'),
       const Tab(text: 'Import from ZIP'),
       const Tab(text: 'Import from Telegram'),
-      if (isAdmin) const Tab(text: 'Import from YouTube'),
+      if (canManageYouTube) const Tab(text: 'Import from YouTube'),
     ];
     final views = [
       const _UploadSingleFileTab(),
       const _ZipImportTab(),
       const _TelegramImportTab(),
-      if (isAdmin) const _YouTubeImportTab(),
+      if (canManageYouTube) const _YouTubeImportTab(),
     ];
 
     return DefaultTabController(
