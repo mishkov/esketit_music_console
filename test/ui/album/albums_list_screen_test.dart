@@ -1,5 +1,6 @@
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
@@ -99,6 +100,45 @@ void main() {
     expect(tracksStorage.requestedPages, [1, 2]);
     expect(find.text('Page Two Album'), findsOneWidget);
     expect(find.text('Page One Album'), findsNothing);
+  });
+
+  testWidgets('shows pending publication status in the existing album list', (
+    tester,
+  ) async {
+    final tracksStorage = _FakeTracksStorage(
+      pages: {
+        1: StorageAlbumsList(
+          albums: [
+            Album(
+              id: 1,
+              title: 'Pending Album',
+              coverImagePath: '',
+              authors: const [],
+              releaseDate: DateTime.utc(2026),
+              isPublished: true,
+              trackIds: const [],
+              additionalInfo: const [],
+              publicationStatus: CatalogPublicationStatus.pendingReview,
+              requestedByUserId: 7,
+            ),
+          ],
+          page: 1,
+          pageSize: 20,
+          totalItems: 1,
+          totalPages: 1,
+        ),
+      },
+    );
+
+    await tester.pumpWidget(
+      RepositoryProvider<TracksStorage>.value(
+        value: tracksStorage,
+        child: const MaterialApp(home: Scaffold(body: AlbumsListScreen())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pending review'), findsOneWidget);
   });
 }
 

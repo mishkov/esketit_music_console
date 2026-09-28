@@ -1,0 +1,581 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:esketit_music_console/domain/catalog_submission.dart';
+import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/review_lease_token_store.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+class ReviewQueueScreen extends StatefulWidget {
+  const ReviewQueueScreen({super.key, required this.reviewerId});
+
+  final int reviewerId;
+
+  @override
+  State<ReviewQueueScreen> createState() => _ReviewQueueScreenState();
+}
+
+class _ReviewQueueScreenState extends State<ReviewQueueScreen>
+    with WidgetsBindingObserver {
+  CatalogReviewController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller != null) return;
+    _controller = CatalogReviewController(
+      repository: context.read<CatalogSubmissionRepository>(),
+      reviewerId: widget.reviewerId,
+      tokenStore: BrowserReviewLeaseTokenStore(),
+    )..loadQueue();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _controller?.renewNow();
+    } else if (state == AppLifecycleState.detached) {
+      final controller = _controller;
+      if (controller != null) {
+        unawaited(controller.bestEffortRelease());
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        if (controller.hasActiveReview) {
+          return _ActiveReview(controller: controller);
+        }
+        return _RequesterQueue(controller: controller);
+      },
+    );
+  }
+}
+
+class _RequesterQueue extends StatelessWidget {
+  const _RequesterQueue({required this.controller});
+
+  final CatalogReviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator.adaptive(
+      onRefresh: () => controller.loadQueue(tryResume: false),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Review queue by requester',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Refresh queue',
+                onPressed: controller.isLoadingQueue
+                    ? null
+                    : () => controller.loadQueue(tryResume: false),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
+          if (controller.notice != null) ...[
+            const SizedBox(height: 12),
+            _MessageCard(message: controller.notice!),
+          ],
+          if (controller.errorMessage != null) ...[
+            const SizedBox(height: 12),
+            _MessageCard(message: controller.errorMessage!, isError: true),
+          ],
+          if (controller.isLoadingQueue) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+          ],
+          if (!controller.isLoadingQueue && controller.requesters.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 64),
+              child: Center(
+                child: Text('No requesters are waiting for review.'),
+              ),
+            ),
+          for (final requester in controller.requesters) ...[
+            const SizedBox(height: 12),
+            _RequesterCard(requester: requester, controller: controller),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RequesterCard extends StatelessWidget {
+  const _RequesterCard({required this.requester, required this.controller});
+
+  final CatalogReviewRequester requester;
+  final CatalogReviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final lease = requester.activeLease;
+    final heldByAnother =
+        lease != null && lease.reviewerUserId != controller.reviewerId;
+    return Card(
+      key: ValueKey('review-requester-${requester.userId}'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.account_circle_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    requester.email,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                FilledButton(
+                  key: ValueKey('start-review-${requester.userId}'),
+                  onPressed: heldByAnother || controller.isMutating
+                      ? null
+                      : () => controller.startReview(requester),
+                  child: Text(
+                    lease?.reviewerUserId == controller.reviewerId
+                        ? 'Resume review'
+                        : 'Start review',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              children: [
+                Text('Pending: ${requester.pendingCount}'),
+                Text('Import rating: ${requester.importRating}'),
+                Text('Oldest: ${_formatDateTime(requester.oldestPendingAt)}'),
+              ],
+            ),
+            if (lease != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                heldByAnother
+                    ? 'Another reviewer holds this lease until ${_formatDateTime(lease.expiresAt)}.'
+                    : 'Your lease is active until ${_formatDateTime(lease.expiresAt)}.',
+                style: TextStyle(
+                  color: heldByAnother
+                      ? Theme.of(context).colorScheme.error
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveReview extends StatelessWidget {
+  const _ActiveReview({required this.controller});
+
+  final CatalogReviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final requester = controller.activeRequester!;
+    final ordered = [...controller.submissions]
+      ..sort((left, right) {
+        int weight(CatalogSubmission item) => switch (item.entityType) {
+          CatalogSubmissionEntityType.track => 0,
+          CatalogSubmissionEntityType.album => 1,
+          CatalogSubmissionEntityType.author => 2,
+        };
+        final statusComparison =
+            left.status == CatalogSubmissionStatus.pendingReview
+            ? (right.status == CatalogSubmissionStatus.pendingReview ? 0 : -1)
+            : (right.status == CatalogSubmissionStatus.pendingReview ? 1 : 0);
+        return statusComparison != 0
+            ? statusComparison
+            : weight(left).compareTo(weight(right));
+      });
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Reviewing ${requester.email}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (controller.activeLease != null)
+                    Text(
+                      'Lease expires ${_formatDateTime(controller.activeLease!.expiresAt)}',
+                    ),
+                ],
+              ),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('end-review'),
+              onPressed: controller.isMutating ? null : controller.endReview,
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('End review'),
+            ),
+          ],
+        ),
+        if (controller.notice != null) ...[
+          const SizedBox(height: 12),
+          _MessageCard(message: controller.notice!),
+        ],
+        if (controller.errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _MessageCard(message: controller.errorMessage!, isError: true),
+        ],
+        if (controller.isLoadingReview || controller.isMutating) ...[
+          const SizedBox(height: 12),
+          const LinearProgressIndicator(),
+        ],
+        const SizedBox(height: 12),
+        if (!controller.isLoadingReview && ordered.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 64),
+            child: Center(child: Text('No submissions remain in this review.')),
+          ),
+        for (final submission in ordered) ...[
+          _ReviewSubmissionCard(submission: submission, controller: controller),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReviewSubmissionCard extends StatelessWidget {
+  const _ReviewSubmissionCard({
+    required this.submission,
+    required this.controller,
+  });
+
+  final CatalogSubmission submission;
+  final CatalogReviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final canDecide =
+        submission.status == CatalogSubmissionStatus.pendingReview;
+    return Card(
+      key: ValueKey('review-submission-${submission.id}'),
+      child: ExpansionTile(
+        initiallyExpanded: canDecide,
+        leading: Icon(switch (submission.entityType) {
+          CatalogSubmissionEntityType.track => Icons.music_note,
+          CatalogSubmissionEntityType.album => Icons.album,
+          CatalogSubmissionEntityType.author => Icons.person,
+        }),
+        title: Text(submission.entityName),
+        subtitle: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(submission.entityType.label),
+            SubmissionStatusBadge(status: submission.status),
+          ],
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: SelectableText(
+              const JsonEncoder.withIndent(
+                ' ',
+              ).convert(submission.retainedEntity),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+            ),
+          ),
+          if (submission.feedback.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Feedback history',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            for (final feedback in submission.feedback)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(feedback.message),
+                subtitle: Text(
+                  '${feedback.kind.label} · penalty ${feedback.ratingPenalty} · '
+                  '${_formatDateTime(feedback.createdAt)}',
+                ),
+              ),
+          ],
+          if (submission.entityType == CatalogSubmissionEntityType.track) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StagedAudioPlayer(
+                trackId: submission.entityId,
+                repository: context.read<CatalogSubmissionRepository>(),
+                leaseToken: controller.leaseToken,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Approval awards +10 rating points, plus +5 automatically when lyrics exist.',
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (!canDecide)
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Context only — only pending submissions can receive a decision.',
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                FilledButton.tonalIcon(
+                  key: ValueKey('request-changes-${submission.id}'),
+                  onPressed: controller.isMutating
+                      ? null
+                      : () => _feedbackDecision(
+                          context,
+                          CatalogReviewAction.requestChanges,
+                        ),
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('Request changes'),
+                ),
+                FilledButton.icon(
+                  key: ValueKey('approve-${submission.id}'),
+                  onPressed: controller.isMutating
+                      ? null
+                      : () => controller.decide(
+                          submission: submission,
+                          action: CatalogReviewAction.approve,
+                        ),
+                  icon: const Icon(Icons.check),
+                  label: const Text('Approve'),
+                ),
+                FilledButton.icon(
+                  key: ValueKey('reject-${submission.id}'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                  ),
+                  onPressed: controller.isMutating
+                      ? null
+                      : () => _feedbackDecision(
+                          context,
+                          CatalogReviewAction.reject,
+                        ),
+                  icon: const Icon(Icons.block),
+                  label: const Text('Reject permanently'),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _feedbackDecision(
+    BuildContext context,
+    CatalogReviewAction action,
+  ) async {
+    final decision = await showDialog<_FeedbackDecision>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _FeedbackDialog(action: action),
+    );
+    if (decision == null) return;
+    await controller.decide(
+      submission: submission,
+      action: action,
+      message: decision.message,
+      ratingPenalty: decision.ratingPenalty,
+    );
+  }
+}
+
+class _FeedbackDialog extends StatefulWidget {
+  const _FeedbackDialog({required this.action});
+
+  final CatalogReviewAction action;
+
+  @override
+  State<_FeedbackDialog> createState() => _FeedbackDialogState();
+}
+
+class _FeedbackDialogState extends State<_FeedbackDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _message = TextEditingController();
+  final _penalty = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _message.dispose();
+    _penalty.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reject = widget.action == CatalogReviewAction.reject;
+    return AlertDialog(
+      title: Text(reject ? 'Reject permanently?' : 'Request changes'),
+      content: SizedBox(
+        width: 480,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (reject)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'This removes the pending catalog entity and staged media. The immutable history remains.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              TextFormField(
+                key: const ValueKey('review-feedback-message'),
+                controller: _message,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 6,
+                decoration: const InputDecoration(
+                  labelText: 'Feedback message',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Feedback message is required.'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('review-rating-penalty'),
+                controller: _penalty,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Rating penalty',
+                  helperText: 'Defaults to zero.',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final parsed = int.tryParse(value ?? '');
+                  return parsed == null || parsed < 0
+                      ? 'Enter an integer that is zero or greater.'
+                      : null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: reject
+              ? FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                )
+              : null,
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.pop(
+              context,
+              _FeedbackDecision(
+                message: _message.text.trim(),
+                ratingPenalty: int.parse(_penalty.text),
+              ),
+            );
+          },
+          child: Text(reject ? 'Reject permanently' : 'Request changes'),
+        ),
+      ],
+    );
+  }
+}
+
+class _FeedbackDecision {
+  const _FeedbackDecision({required this.message, required this.ratingPenalty});
+
+  final String message;
+  final int ratingPenalty;
+}
+
+class _MessageCard extends StatelessWidget {
+  const _MessageCard({required this.message, this.isError = false});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: isError
+          ? Theme.of(context).colorScheme.errorContainer
+          : Theme.of(context).colorScheme.secondaryContainer,
+      child: ListTile(
+        leading: Icon(isError ? Icons.error_outline : Icons.info_outline),
+        title: Text(message),
+      ),
+    );
+  }
+}
+
+String _formatDateTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}

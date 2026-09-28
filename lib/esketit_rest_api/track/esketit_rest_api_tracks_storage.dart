@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/domain/file/media_file_info.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
@@ -590,6 +591,10 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           .map((id) => id.toInt())
           .toList(),
       additionalInfo: parseTrackInfos(json['additionalInfo']),
+      publicationStatus: CatalogPublicationStatus.fromJson(
+        json['publicationStatus'],
+      ),
+      requestedByUserId: (json['requestedByUserId'] as num?)?.toInt(),
     );
   }
 
@@ -859,6 +864,10 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       photos: (json['photos'] as List<dynamic>? ?? const [])
           .whereType<String>()
           .toList(),
+      publicationStatus: CatalogPublicationStatus.fromJson(
+        json['publicationStatus'],
+      ),
+      requestedByUserId: (json['requestedByUserId'] as num?)?.toInt(),
     );
   }
 

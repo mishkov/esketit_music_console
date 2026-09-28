@@ -1,6 +1,8 @@
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/ui/author/edit_author_screen.dart';
+import 'package:esketit_music_console/ui/catalog_submission/publication_status_badge.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -64,9 +66,22 @@ class _AuthorsListScreenState extends State<AuthorsListScreen> {
                         margin: EdgeInsets.zero,
                         child: ListTile(
                           title: Text(author.currentName),
-                          subtitle: Text('Photos: ${author.photos.length}'),
+                          subtitle: Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text('Photos: ${author.photos.length}'),
+                              PublicationStatusBadge(
+                                status: author.publicationStatus,
+                              ),
+                            ],
+                          ),
                           trailing: const Icon(Icons.chevron_right),
-                          onTap: author.id == null
+                          onTap:
+                              author.id == null ||
+                                  author.publicationStatus !=
+                                      CatalogPublicationStatus.published
                               ? null
                               : () => _openAuthor(author.id!),
                         ),

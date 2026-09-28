@@ -263,7 +263,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                       buildDefaultDragHandles: false,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _tracks.length,
-                      onReorder: _isSaving ? (_, _) {} : _reorderTracks,
+                      onReorderItem: _isSaving ? (_, _) {} : _reorderTracks,
                       itemBuilder: (context, index) {
                         final track = _tracks[index];
                         return Padding(
@@ -735,9 +735,6 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   void _reorderTracks(int oldIndex, int newIndex) {
     setState(() {
       final updatedTracks = List<Track>.from(_tracks);
-      if (newIndex > oldIndex) {
-        newIndex -= 1;
-      }
       final item = updatedTracks.removeAt(oldIndex);
       updatedTracks.insert(newIndex, item);
       _tracks = updatedTracks;

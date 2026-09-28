@@ -36,6 +36,27 @@ void main() {
     expect(find.text('Access Control'), findsNothing);
   });
 
+  testWidgets('shows catalog submissions only with a relevant permission', (
+    tester,
+  ) async {
+    await _pumpMainShell(
+      tester,
+      size: const Size(1000, 800),
+      authSession: _authSession(
+        canManageAccessControl: false,
+        catalogPermission: 'catalog_submissions.read_own',
+      ),
+    );
+    expect(find.text('Catalog submissions'), findsOneWidget);
+
+    await _pumpMainShell(
+      tester,
+      size: const Size(1000, 800),
+      authSession: _authSession(canManageAccessControl: false),
+    );
+    expect(find.text('Catalog submissions'), findsNothing);
+  });
+
   testWidgets('applies app bar search only when Enter is pressed', (
     tester,
   ) async {
@@ -221,23 +242,32 @@ class _FakeAuthRepository extends Fake implements AuthRepository {
   Future<AuthSession?> restoreSession() async => session;
 }
 
-AuthSession _authSession({required bool canManageAccessControl}) {
+AuthSession _authSession({
+  required bool canManageAccessControl,
+  String? catalogPermission,
+}) {
   return AuthSession(
     user: AppUser(
       id: 1,
       email: 'user@example.com',
       createdAt: DateTime.utc(2026, 1, 1),
       roles: const [],
-      permissions: canManageAccessControl
-          ? [
-              AccessPermission(
-                id: 1,
-                code: 'access_control.manage',
-                description: 'Manage access control',
-                createdAt: DateTime.utc(2026, 1, 1),
-              ),
-            ]
-          : const [],
+      permissions: [
+        if (canManageAccessControl)
+          AccessPermission(
+            id: 1,
+            code: 'access_control.manage',
+            description: 'Manage access control',
+            createdAt: DateTime.utc(2026, 1, 1),
+          ),
+        if (catalogPermission != null)
+          AccessPermission(
+            id: 2,
+            code: catalogPermission,
+            description: 'Catalog submissions',
+            createdAt: DateTime.utc(2026, 1, 1),
+          ),
+      ],
     ),
     accessToken: 'token',
     accessTokenExpiresAt: DateTime.utc(2099, 1, 1),

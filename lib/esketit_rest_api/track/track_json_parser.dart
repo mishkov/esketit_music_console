@@ -1,4 +1,5 @@
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
@@ -34,6 +35,10 @@ Track parseTrackJson(
         songReference: audioFilePath,
       ),
     ),
+    publicationStatus: CatalogPublicationStatus.fromJson(
+      json['publicationStatus'],
+    ),
+    requestedByUserId: (json['requestedByUserId'] as num?)?.toInt(),
   );
 }
 
@@ -49,7 +54,9 @@ String songDownloadUrl({required Uri baseUri, required String songReference}) {
   if (trimmed.startsWith('/api/songs/')) {
     return baseUri.resolve(trimmed).toString();
   }
-  return baseUri.resolve('/api/songs/${Uri.encodeComponent(trimmed)}').toString();
+  return baseUri
+      .resolve('/api/songs/${Uri.encodeComponent(trimmed)}')
+      .toString();
 }
 
 String songFileName(String? songReference) {

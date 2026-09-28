@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/domain/file/abstract_file.dart';
 import 'package:esketit_music_console/domain/track_info/track_info.dart';
 import 'package:esketit_music_console/domain/track_source_metadata.dart';
@@ -16,6 +17,8 @@ class Track extends Equatable {
   /// link to videos, link to tik toks, link to covers etc.
   final List<TrackInfo> additionalInfo;
   final List<TrackSourceMetadata> sourceMetadata;
+  final CatalogPublicationStatus publicationStatus;
+  final int? requestedByUserId;
 
   const Track({
     this.id,
@@ -26,6 +29,8 @@ class Track extends Equatable {
     required this.additionalInfo,
     required this.sourceMetadata,
     required this.file,
+    this.publicationStatus = CatalogPublicationStatus.published,
+    this.requestedByUserId,
   });
 
   List<TrackInfo> get addionalInfo => additionalInfo;
@@ -40,5 +45,7 @@ class Track extends Equatable {
     file,
     additionalInfo,
     sourceMetadata,
+    publicationStatus,
+    requestedByUserId,
   ];
 }

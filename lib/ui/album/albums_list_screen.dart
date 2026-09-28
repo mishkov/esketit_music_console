@@ -1,10 +1,12 @@
 import 'package:esketit_music_console/domain/album.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:esketit_music_console/ui/catalog_submission/publication_status_badge.dart';
 
 class AlbumsListScreen extends StatefulWidget {
   const AlbumsListScreen({super.key});
@@ -105,7 +107,10 @@ class _AlbumsListScreenState extends State<AlbumsListScreen> {
                             .read<TracksStorage>()
                             .resolveAlbumCoverUrl(album.coverImagePath),
                         releaseDateLabel: _formatDate(album.releaseDate),
-                        onTap: album.id == null
+                        onTap:
+                            album.id == null ||
+                                album.publicationStatus !=
+                                    CatalogPublicationStatus.published
                             ? null
                             : () => _openAlbum(album.id!),
                       );
@@ -295,9 +300,8 @@ class _AlbumCard extends StatelessWidget {
                           album.title,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        _AlbumTag(
-                          label: album.isPublished ? 'Published' : 'Draft',
-                        ),
+                        if (!album.isPublished) const _AlbumTag(label: 'Draft'),
+                        PublicationStatusBadge(status: album.publicationStatus),
                         _AlbumTag(label: '${album.trackIds.length} tracks'),
                         _AlbumTag(label: releaseDateLabel),
                       ],

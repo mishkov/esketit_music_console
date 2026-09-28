@@ -1,8 +1,11 @@
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_publication_status.dart';
+import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/esketit_rest_api/access_control/esketit_rest_api_access_control_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/authenticated_http_client_proxy.dart';
 import 'package:esketit_music_console/esketit_rest_api/auth/esketit_rest_api_auth_repository.dart';
+import 'package:esketit_music_console/esketit_rest_api/catalog_submission/esketit_rest_api_catalog_submission_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/lyrics/esketit_rest_api_lyrics_search_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/telegram/esketit_rest_api_telegram_import_repository.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/esketit_rest_api_tracks_storage.dart';
@@ -14,6 +17,8 @@ import 'package:esketit_music_console/ui/album/albums_list_screen.dart';
 import 'package:esketit_music_console/ui/album/albums_support.dart';
 import 'package:esketit_music_console/ui/album/edit_album_screen.dart';
 import 'package:esketit_music_console/ui/auth/sign_in_screen.dart';
+import 'package:esketit_music_console/ui/catalog_submission/publication_status_badge.dart';
+import 'package:esketit_music_console/ui/catalog_submission/catalog_submissions_screen.dart';
 import 'package:esketit_music_console/ui/author/authors_list_screen.dart';
 import 'package:esketit_music_console/ui/settings/settings_screen.dart';
 import 'package:esketit_music_console/ui/track/add_tracks_screen.dart';
@@ -23,6 +28,7 @@ import 'package:esketit_music_console/unassigned_layer/http_package_http_client.
 import 'package:esketit_music_console/unassigned_layer/shared_preferences_auth_session_storage.dart';
 import 'package:esketit_music_console/use_case/access_control/access_control_repository.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/use_case/lyrics/lyrics_search_repository.dart';
 import 'package:esketit_music_console/use_case/settings/app_theme_mode_cubit.dart';
 import 'package:esketit_music_console/use_case/telegram/telegram_import_repository.dart';
@@ -81,8 +87,8 @@ class AppRoot extends StatelessWidget {
       const String.fromEnvironment(
         'ESKETIT_API_BASE_URL',
         // DO NOT REMOVE ANY COMMENDTED LINES HERE BECAUSE THEY ARE USED TO QUICKLY SWITCH SERVER.
-        // defaultValue: 'http://localhost:8080/api/',
-        defaultValue: 'https://esketitmusic.online/api/',
+        defaultValue: 'http://localhost:8080/api/',
+        // defaultValue: 'https://esketitmusic.online/api/',
       ),
     );
     final unauthenticatedHttpClient = HttpPackageHttpClient(baseUri: baseUri);
@@ -109,6 +115,11 @@ class AppRoot extends StatelessWidget {
           create: (_) => EsketitRestApiTracksStorage(
             authenticatedHttpClient: authenticatedHttpClient,
             baseUri: baseUri,
+          ),
+        ),
+        RepositoryProvider<CatalogSubmissionRepository>(
+          create: (_) => EsketitRestApiCatalogSubmissionRepository(
+            httpClient: authenticatedHttpClient,
           ),
         ),
         RepositoryProvider<LyricsSearchRepository>(
@@ -216,7 +227,14 @@ class _RestoringSessionScreen extends StatelessWidget {
   }
 }
 
-enum _MainDestination { tracks, albums, authors, utilities, settings }
+enum _MainDestination {
+  tracks,
+  albums,
+  authors,
+  catalogSubmissions,
+  utilities,
+  settings,
+}
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -296,6 +314,7 @@ class _MainShellState extends State<MainShell> {
             label: const Text('Create album'),
           ),
           _MainDestination.authors ||
+          _MainDestination.catalogSubmissions ||
           _MainDestination.utilities ||
           _MainDestination.settings => null,
         },
@@ -319,6 +338,10 @@ class _MainShellState extends State<MainShell> {
                   _MainDestination.authors => const AuthorsListScreen(
                     key: ValueKey('authors'),
                   ),
+                  _MainDestination.catalogSubmissions =>
+                    const CatalogSubmissionsScreen(
+                      key: ValueKey('catalog-submissions'),
+                    ),
                   _MainDestination.utilities => const UtilitiesScreen(
                     key: ValueKey('utilities'),
                   ),
@@ -542,10 +565,11 @@ class _MainShellState extends State<MainShell> {
           ) ??
           false,
     );
-    final accessControlIndex = _MainDestination.values.length;
+    final destinations = _visibleMainDestinations(context);
+    final accessControlIndex = destinations.length;
     final signOutIndex = accessControlIndex + (canManageAccessControl ? 1 : 0);
     return NavigationRail(
-      selectedIndex: _destination.index,
+      selectedIndex: destinations.indexOf(_destination),
       onDestinationSelected: (index) {
         if (canManageAccessControl && index == accessControlIndex) {
           Navigator.of(context).pushNamed(AccessControlRoute.routeName);
@@ -555,35 +579,11 @@ class _MainShellState extends State<MainShell> {
           _confirmSignOut();
           return;
         }
-        _selectDestination(index);
+        _selectDestination(destinations[index]);
       },
       labelType: NavigationRailLabelType.all,
       destinations: [
-        const NavigationRailDestination(
-          icon: Icon(Icons.music_note_outlined),
-          selectedIcon: Icon(Icons.music_note),
-          label: Text('Tracks'),
-        ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.album_outlined),
-          selectedIcon: Icon(Icons.album),
-          label: Text('Albums'),
-        ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.people_outline),
-          selectedIcon: Icon(Icons.people),
-          label: Text('Authors'),
-        ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.build_outlined),
-          selectedIcon: Icon(Icons.build),
-          label: Text('Utilities'),
-        ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings),
-          label: Text('Settings'),
-        ),
+        for (final destination in destinations) _railDestination(destination),
         if (canManageAccessControl)
           const NavigationRailDestination(
             icon: Icon(Icons.shield_outlined),
@@ -606,15 +606,16 @@ class _MainShellState extends State<MainShell> {
           ) ??
           false,
     );
+    final destinations = _visibleMainDestinations(context);
     return NavigationDrawer(
-      selectedIndex: _destination.index,
+      selectedIndex: destinations.indexOf(_destination),
       onDestinationSelected: (index) {
         Navigator.of(context).pop();
-        if (canManageAccessControl && index == _MainDestination.values.length) {
+        if (canManageAccessControl && index == destinations.length) {
           Navigator.of(context).pushNamed(AccessControlRoute.routeName);
           return;
         }
-        _selectDestination(index);
+        _selectDestination(destinations[index]);
       },
       children: [
         if (userEmail != null)
@@ -636,31 +637,7 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
         const Divider(indent: 12, endIndent: 12),
-        const NavigationDrawerDestination(
-          icon: Icon(Icons.music_note_outlined),
-          selectedIcon: Icon(Icons.music_note),
-          label: Text('Tracks'),
-        ),
-        const NavigationDrawerDestination(
-          icon: Icon(Icons.album_outlined),
-          selectedIcon: Icon(Icons.album),
-          label: Text('Albums'),
-        ),
-        const NavigationDrawerDestination(
-          icon: Icon(Icons.people_outline),
-          selectedIcon: Icon(Icons.people),
-          label: Text('Authors'),
-        ),
-        const NavigationDrawerDestination(
-          icon: Icon(Icons.build_outlined),
-          selectedIcon: Icon(Icons.build),
-          label: Text('Utilities'),
-        ),
-        const NavigationDrawerDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings),
-          label: Text('Settings'),
-        ),
+        for (final destination in destinations) _drawerDestination(destination),
         if (canManageAccessControl)
           const NavigationDrawerDestination(
             icon: Icon(Icons.shield_outlined),
@@ -680,11 +657,75 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  void _selectDestination(int index) {
+  void _selectDestination(_MainDestination destination) {
     setState(() {
-      _destination = _MainDestination.values[index];
+      _destination = destination;
     });
   }
+
+  List<_MainDestination> _visibleMainDestinations(BuildContext context) {
+    final showCatalog = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.permissions.any(
+            (permission) =>
+                catalogSubmissionPermissionCodes.contains(permission.code),
+          ) ??
+          false,
+    );
+    return [
+      _MainDestination.tracks,
+      _MainDestination.albums,
+      _MainDestination.authors,
+      if (showCatalog) _MainDestination.catalogSubmissions,
+      _MainDestination.utilities,
+      _MainDestination.settings,
+    ];
+  }
+
+  NavigationRailDestination _railDestination(_MainDestination destination) {
+    final (icon, selectedIcon, label) = _destinationAppearance(destination);
+    return NavigationRailDestination(
+      icon: Icon(icon),
+      selectedIcon: Icon(selectedIcon),
+      label: Text(label),
+    );
+  }
+
+  NavigationDrawerDestination _drawerDestination(_MainDestination destination) {
+    final (icon, selectedIcon, label) = _destinationAppearance(destination);
+    return NavigationDrawerDestination(
+      icon: Icon(icon),
+      selectedIcon: Icon(selectedIcon),
+      label: Text(label),
+    );
+  }
+
+  (IconData, IconData, String) _destinationAppearance(
+    _MainDestination destination,
+  ) => switch (destination) {
+    _MainDestination.tracks => (
+      Icons.music_note_outlined,
+      Icons.music_note,
+      'Tracks',
+    ),
+    _MainDestination.albums => (Icons.album_outlined, Icons.album, 'Albums'),
+    _MainDestination.authors => (Icons.people_outline, Icons.people, 'Authors'),
+    _MainDestination.catalogSubmissions => (
+      Icons.upload_file_outlined,
+      Icons.upload_file,
+      'Catalog submissions',
+    ),
+    _MainDestination.utilities => (
+      Icons.build_outlined,
+      Icons.build,
+      'Utilities',
+    ),
+    _MainDestination.settings => (
+      Icons.settings_outlined,
+      Icons.settings,
+      'Settings',
+    ),
+  };
 
   Future<void> _confirmSignOut() async {
     final confirmed = await showDialog<bool>(
@@ -1019,14 +1060,26 @@ class _TracksSectionState extends State<TracksSection> {
                                 .join(', ');
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
-                              onTap: () =>
-                                  _openEditTrackScreen(context, track.id),
+                              onTap:
+                                  track.publicationStatus ==
+                                      CatalogPublicationStatus.published
+                                  ? () =>
+                                        _openEditTrackScreen(context, track.id)
+                                  : null,
                               leading: _TrackAlbumCover(
                                 imageUrl:
                                     widget.albumCoverUrlsById[track.albumId] ??
                                     '',
                               ),
-                              title: Text(track.name),
+                              title: Row(
+                                children: [
+                                  Expanded(child: Text(track.name)),
+                                  const SizedBox(width: 8),
+                                  PublicationStatusBadge(
+                                    status: track.publicationStatus,
+                                  ),
+                                ],
+                              ),
                               subtitle: authorNames.isEmpty
                                   ? null
                                   : Text(authorNames),
