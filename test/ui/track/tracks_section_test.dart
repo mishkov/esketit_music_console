@@ -7,6 +7,7 @@ import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/main.dart';
+import 'package:esketit_music_console/ui/catalog_submission/review_queue_screen.dart';
 import 'package:esketit_music_console/use_case/auth/auth_repository.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
@@ -43,6 +44,23 @@ void main() {
       find.text('Catalog submissions  ›  Review queue  ›  Филки'),
       findsOneWidget,
     );
+
+    final tabs = tester.getRect(find.byType(SegmentedButton<String>));
+    final endReview = tester.getRect(find.byKey(const ValueKey('end-review')));
+    expect(endReview.left, greaterThanOrEqualTo(tabs.right));
+    expect(endReview.center.dy, closeTo(tabs.center.dy, 1));
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('end-review')),
+        matching: find.byType(ReviewQueueScreen),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('end-review')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('end-review')), findsNothing);
+    expect(find.text('Review queue by requester'), findsOneWidget);
   });
 
   testWidgets('shows Access Control only with the management permission', (

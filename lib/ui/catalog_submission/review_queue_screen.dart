@@ -15,19 +15,30 @@ class ReviewQueueScreen extends StatefulWidget {
     super.key,
     required this.reviewerId,
     this.onSelectedSubmissionChanged,
+    this.onReviewActionChanged,
   });
 
   final int reviewerId;
   final ValueChanged<String?>? onSelectedSubmissionChanged;
+  final ValueChanged<ReviewHeaderAction?>? onReviewActionChanged;
 
   @override
   State<ReviewQueueScreen> createState() => _ReviewQueueScreenState();
+}
+
+class ReviewHeaderAction {
+  const ReviewHeaderAction({required this.onPressed, required this.isEnabled});
+
+  final VoidCallback onPressed;
+  final bool isEnabled;
 }
 
 class _ReviewQueueScreenState extends State<ReviewQueueScreen>
     with WidgetsBindingObserver {
   CatalogReviewController? _controller;
   String? _lastReportedSubmissionName;
+  bool? _lastReportedReviewIsActive;
+  bool? _lastReportedReviewIsMutating;
 
   @override
   void didChangeDependencies() {
@@ -69,10 +80,12 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
+        _reportReviewAction(controller);
         if (controller.hasActiveReview) {
           return _ActiveReview(
             controller: controller,
             onSelectedSubmissionChanged: _reportSelectedSubmission,
+            showEndReviewButton: widget.onReviewActionChanged == null,
           );
         }
         _reportSelectedSubmission(null);
@@ -86,6 +99,29 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
     _lastReportedSubmissionName = name;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onSelectedSubmissionChanged?.call(name);
+    });
+  }
+
+  void _reportReviewAction(CatalogReviewController controller) {
+    if (widget.onReviewActionChanged == null) return;
+    final isActive = controller.hasActiveReview;
+    final isMutating = controller.isMutating;
+    if (_lastReportedReviewIsActive == isActive &&
+        _lastReportedReviewIsMutating == isMutating) {
+      return;
+    }
+    _lastReportedReviewIsActive = isActive;
+    _lastReportedReviewIsMutating = isMutating;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onReviewActionChanged?.call(
+        isActive
+            ? ReviewHeaderAction(
+                onPressed: controller.endReview,
+                isEnabled: !isMutating,
+              )
+            : null,
+      );
     });
   }
 }
@@ -223,10 +259,12 @@ class _ActiveReview extends StatefulWidget {
   const _ActiveReview({
     required this.controller,
     required this.onSelectedSubmissionChanged,
+    required this.showEndReviewButton,
   });
 
   final CatalogReviewController controller;
   final ValueChanged<String?> onSelectedSubmissionChanged;
+  final bool showEndReviewButton;
 
   @override
   State<_ActiveReview> createState() => _ActiveReviewState();
@@ -275,16 +313,18 @@ class _ActiveReviewState extends State<_ActiveReview> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: OutlinedButton.icon(
-            key: const ValueKey('end-review'),
-            onPressed: controller.isMutating ? null : controller.endReview,
-            icon: const Icon(Icons.stop_circle_outlined),
-            label: const Text('End review'),
+        if (widget.showEndReviewButton) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              key: const ValueKey('end-review'),
+              onPressed: controller.isMutating ? null : controller.endReview,
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('End review'),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ],
         _ReviewNavigationHeader(
           requester: controller.activeRequester!,
           lease: controller.activeLease,

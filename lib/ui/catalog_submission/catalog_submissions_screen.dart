@@ -20,6 +20,7 @@ class CatalogSubmissionsScreen extends StatefulWidget {
 class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
   String? _selectedKey;
   String? _selectedReviewItemName;
+  ReviewHeaderAction? _reviewHeaderAction;
   String? _lastPublishedPath;
   int _mySubmissionsVersion = 0;
 
@@ -53,25 +54,44 @@ class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SegmentedButton<String>(
-                  segments: [
-                    for (final page in pages)
-                      ButtonSegment<String>(
-                        value: page.key,
-                        icon: Icon(page.icon),
-                        label: Text(page.label),
+              Row(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SegmentedButton<String>(
+                        segments: [
+                          for (final page in pages)
+                            ButtonSegment<String>(
+                              value: page.key,
+                              icon: Icon(page.icon),
+                              label: Text(page.label),
+                            ),
+                        ],
+                        selected: {selectedKey},
+                        onSelectionChanged: (selection) {
+                          setState(() {
+                            _selectedKey = selection.single;
+                            _selectedReviewItemName = null;
+                            _reviewHeaderAction = null;
+                          });
+                        },
                       ),
+                    ),
+                  ),
+                  if (selectedKey == 'review' &&
+                      _reviewHeaderAction != null) ...[
+                    const SizedBox(width: 16),
+                    OutlinedButton.icon(
+                      key: const ValueKey('end-review'),
+                      onPressed: _reviewHeaderAction!.isEnabled
+                          ? _reviewHeaderAction!.onPressed
+                          : null,
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text('End review'),
+                    ),
                   ],
-                  selected: {selectedKey},
-                  onSelectionChanged: (selection) {
-                    setState(() {
-                      _selectedKey = selection.single;
-                      _selectedReviewItemName = null;
-                    });
-                  },
-                ),
+                ],
               ),
             ],
           ),
@@ -93,6 +113,12 @@ class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
             ),
             'review' => ReviewQueueScreen(
               reviewerId: user.id,
+              onReviewActionChanged: (action) {
+                if (!mounted || (_selectedKey ?? selectedKey) != 'review') {
+                  return;
+                }
+                setState(() => _reviewHeaderAction = action);
+              },
               onSelectedSubmissionChanged: (name) {
                 if ((_selectedKey ?? selectedKey) != 'review' ||
                     _selectedReviewItemName == name) {
