@@ -11,9 +11,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class ReviewQueueScreen extends StatefulWidget {
-  const ReviewQueueScreen({super.key, required this.reviewerId});
+  const ReviewQueueScreen({
+    super.key,
+    required this.reviewerId,
+    this.onSelectedSubmissionChanged,
+  });
 
   final int reviewerId;
+  final ValueChanged<String?>? onSelectedSubmissionChanged;
 
   @override
   State<ReviewQueueScreen> createState() => _ReviewQueueScreenState();
@@ -22,6 +27,7 @@ class ReviewQueueScreen extends StatefulWidget {
 class _ReviewQueueScreenState extends State<ReviewQueueScreen>
     with WidgetsBindingObserver {
   CatalogReviewController? _controller;
+  String? _lastReportedSubmissionName;
 
   @override
   void didChangeDependencies() {
@@ -64,11 +70,23 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
       animation: controller,
       builder: (context, _) {
         if (controller.hasActiveReview) {
-          return _ActiveReview(controller: controller);
+          return _ActiveReview(
+            controller: controller,
+            onSelectedSubmissionChanged: _reportSelectedSubmission,
+          );
         }
+        _reportSelectedSubmission(null);
         return _RequesterQueue(controller: controller);
       },
     );
+  }
+
+  void _reportSelectedSubmission(String? name) {
+    if (_lastReportedSubmissionName == name) return;
+    _lastReportedSubmissionName = name;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onSelectedSubmissionChanged?.call(name);
+    });
   }
 }
 
@@ -202,9 +220,13 @@ class _RequesterCard extends StatelessWidget {
 }
 
 class _ActiveReview extends StatefulWidget {
-  const _ActiveReview({required this.controller});
+  const _ActiveReview({
+    required this.controller,
+    required this.onSelectedSubmissionChanged,
+  });
 
   final CatalogReviewController controller;
+  final ValueChanged<String?> onSelectedSubmissionChanged;
 
   @override
   State<_ActiveReview> createState() => _ActiveReviewState();
@@ -241,6 +263,7 @@ class _ActiveReviewState extends State<_ActiveReview> {
         ? _lastIndex.clamp(0, ordered.length - 1)
         : selectedIndex;
     final current = currentIndex < 0 ? null : ordered[currentIndex];
+    widget.onSelectedSubmissionChanged(current?.entityName);
 
     void select(int index) {
       setState(() {

@@ -3,11 +3,13 @@ import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/domain/auth/app_user.dart';
 import 'package:esketit_music_console/domain/auth/auth_session.dart';
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/firebase/track/storage_file.dart';
 import 'package:esketit_music_console/main.dart';
 import 'package:esketit_music_console/use_case/auth/auth_repository.dart';
 import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_albums_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/storage_tracks_list.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
@@ -18,6 +20,31 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('shows the selected review item in the screen path', (
+    tester,
+  ) async {
+    await _pumpMainShell(
+      tester,
+      size: const Size(1000, 800),
+      authSession: _authSession(
+        canManageAccessControl: false,
+        catalogPermission: catalogSubmissionsReviewPermission,
+      ),
+      catalogRepository: _FakeCatalogReviewRepository(),
+    );
+
+    await tester.tap(find.text('Catalog submissions').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Catalog submissions  ›  Review queue'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('start-review-7')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Catalog submissions  ›  Review queue  ›  Филки'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('shows Access Control only with the management permission', (
     tester,
   ) async {
@@ -192,6 +219,7 @@ Future<_TestHarness> _pumpMainShell(
   required Size size,
   TrackListState initialTrackListState = const TrackListState(tracks: []),
   AuthSession? authSession,
+  CatalogSubmissionRepository? catalogRepository,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -210,8 +238,14 @@ Future<_TestHarness> _pumpMainShell(
   addTearDown(authBloc.close);
 
   await tester.pumpWidget(
-    RepositoryProvider<TracksStorage>.value(
-      value: storage,
+    MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<TracksStorage>.value(value: storage),
+        if (catalogRepository != null)
+          RepositoryProvider<CatalogSubmissionRepository>.value(
+            value: catalogRepository,
+          ),
+      ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider<TrackListBloc>.value(value: trackListBloc),
@@ -224,6 +258,54 @@ Future<_TestHarness> _pumpMainShell(
   await tester.pumpAndSettle();
 
   return _TestHarness(bloc: trackListBloc, storage: storage);
+}
+
+class _FakeCatalogReviewRepository extends Fake
+    implements CatalogSubmissionRepository {
+  @override
+  Future<List<CatalogReviewRequester>> getReviewRequesters() async => [
+    CatalogReviewRequester(
+      userId: 7,
+      email: 'requester@example.com',
+      pendingCount: 1,
+      importRating: 10,
+      oldestPendingAt: DateTime.utc(2026, 9, 20),
+    ),
+  ];
+
+  @override
+  Future<CatalogReviewLease> acquireLease(int requesterId) async =>
+      CatalogReviewLease(
+        requesterUserId: requesterId,
+        reviewerUserId: 1,
+        leaseToken: 'test-lease',
+        acquiredAt: DateTime.utc(2026, 9, 26),
+        heartbeatAt: DateTime.utc(2026, 9, 26),
+        expiresAt: DateTime.utc(2099),
+      );
+
+  @override
+  Future<List<CatalogSubmission>> getReviewSubmissions(
+    int requesterId,
+    String leaseToken,
+  ) async => [
+    CatalogSubmission(
+      id: 10,
+      entityType: CatalogSubmissionEntityType.track,
+      entityId: 42,
+      requesterUserId: requesterId,
+      status: CatalogSubmissionStatus.pendingReview,
+      snapshot: const {'name': 'Филки'},
+      entity: const {'name': 'Филки'},
+      feedback: const [],
+      createdAt: DateTime.utc(2026, 9, 26),
+      submittedAt: DateTime.utc(2026, 9, 26),
+      updatedAt: DateTime.utc(2026, 9, 26),
+    ),
+  ];
+
+  @override
+  Future<void> releaseLease(int requesterId, String leaseToken) async {}
 }
 
 class _TestHarness {

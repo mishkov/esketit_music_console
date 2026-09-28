@@ -86,11 +86,17 @@ void main() {
     tester,
   ) async {
     final repository = _FakeReviewRepository(includeSecondSubmission: true);
+    final selectedNames = <String?>[];
     await tester.pumpWidget(
       RepositoryProvider<CatalogSubmissionRepository>.value(
         value: repository,
-        child: const MaterialApp(
-          home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+        child: MaterialApp(
+          home: Scaffold(
+            body: ReviewQueueScreen(
+              reviewerId: 8,
+              onSelectedSubmissionChanged: selectedNames.add,
+            ),
+          ),
         ),
       ),
     );
@@ -103,6 +109,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Submission #10'), findsOneWidget);
+    expect(selectedNames.last, 'Track');
     expect(find.text('1 of 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
@@ -119,6 +126,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Submission #11'), findsOneWidget);
+    expect(selectedNames.last, 'Second album');
     expect(find.text('2 of 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
@@ -130,6 +138,10 @@ void main() {
           .onPressed,
       isNull,
     );
+
+    await tester.tap(find.byKey(const ValueKey('end-review')));
+    await tester.pumpAndSettle();
+    expect(selectedNames.last, isNull);
   });
 }
 

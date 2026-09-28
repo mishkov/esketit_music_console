@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 class CatalogSubmissionsScreen extends StatefulWidget {
-  const CatalogSubmissionsScreen({super.key});
+  const CatalogSubmissionsScreen({super.key, this.onPathChanged});
+
+  final ValueChanged<List<String>>? onPathChanged;
 
   @override
   State<CatalogSubmissionsScreen> createState() =>
@@ -17,6 +19,8 @@ class CatalogSubmissionsScreen extends StatefulWidget {
 
 class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
   String? _selectedKey;
+  String? _selectedReviewItemName;
+  String? _lastPublishedPath;
   int _mySubmissionsVersion = 0;
 
   @override
@@ -34,12 +38,13 @@ class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
         ? _selectedKey!
         : pages.first.key;
     final selected = pages.firstWhere((page) => page.key == selectedKey);
+    _publishPath(selected.label);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -61,7 +66,10 @@ class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
                   ],
                   selected: {selectedKey},
                   onSelectionChanged: (selection) {
-                    setState(() => _selectedKey = selection.single);
+                    setState(() {
+                      _selectedKey = selection.single;
+                      _selectedReviewItemName = null;
+                    });
                   },
                 ),
               ),
@@ -79,15 +87,40 @@ class _CatalogSubmissionsScreenState extends State<CatalogSubmissionsScreen> {
                 setState(() {
                   _mySubmissionsVersion += 1;
                   _selectedKey = 'mine';
+                  _selectedReviewItemName = null;
                 });
               },
             ),
-            'review' => ReviewQueueScreen(reviewerId: user.id),
+            'review' => ReviewQueueScreen(
+              reviewerId: user.id,
+              onSelectedSubmissionChanged: (name) {
+                if ((_selectedKey ?? selectedKey) != 'review' ||
+                    _selectedReviewItemName == name) {
+                  return;
+                }
+                setState(() => _selectedReviewItemName = name);
+              },
+            ),
             _ => const SizedBox.shrink(),
           },
         ),
       ],
     );
+  }
+
+  void _publishPath(String pageLabel) {
+    final path = [
+      'Catalog submissions',
+      pageLabel,
+      if (pageLabel == 'Review queue' && _selectedReviewItemName != null)
+        _selectedReviewItemName!,
+    ];
+    final pathKey = path.join('\u0000');
+    if (pathKey == _lastPublishedPath) return;
+    _lastPublishedPath = pathKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onPathChanged?.call(path);
+    });
   }
 
   List<_CatalogPage> _pagesFor(AppUser user) {

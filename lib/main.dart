@@ -248,6 +248,7 @@ class _MainShellState extends State<MainShell> {
   static const int _filterOptionsPageSize = 100;
 
   _MainDestination _destination = _MainDestination.tracks;
+  List<String> _catalogPath = const ['Catalog submissions'];
   int _albumsSectionVersion = 0;
   late final TextEditingController _trackQueryController;
   List<Author> _trackFilterAuthors = const [];
@@ -349,8 +350,9 @@ class _MainShellState extends State<MainShell> {
                           key: ValueKey('authors'),
                         ),
                         _MainDestination.catalogSubmissions =>
-                          const CatalogSubmissionsScreen(
+                          CatalogSubmissionsScreen(
                             key: ValueKey('catalog-submissions'),
+                            onPathChanged: _onCatalogPathChanged,
                           ),
                         _MainDestination.utilities => const UtilitiesScreen(
                           key: ValueKey('utilities'),
@@ -371,66 +373,115 @@ class _MainShellState extends State<MainShell> {
   }
 
   AppBar _buildAppBar() {
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= _navigationDrawerBreakpoint;
+    if (isDesktop) {
+      final path = _destination == _MainDestination.catalogSubmissions
+          ? _catalogPath
+          : [_destinationAppearance(_destination).$3];
+      return AppBar(
+        centerTitle: false,
+        titleSpacing: 18,
+        title: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              Expanded(
+                child: Text(
+                  path.join('  ›  '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              if (_destination == _MainDestination.tracks) ...[
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: constraints.maxWidth > 700
+                      ? 450
+                      : constraints.maxWidth * 0.6,
+                  child: _buildTrackSearch(),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_destination != _MainDestination.tracks) {
       return AppBar(title: const Text('Esketit Music'));
     }
-
-    final hasAppliedFilters =
-        _selectedTrackAuthorId != null || _selectedTrackAlbumId != null;
 
     return AppBar(
       centerTitle: true,
       title: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
-        child: SizedBox(
-          height: 44,
-          child: Row(
-            spacing: 8,
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const ValueKey('track-search-field'),
-                  controller: _trackQueryController,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _applyTrackSearch(),
-                  decoration: InputDecoration(
-                    hintText: 'Search by track name',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    contentPadding: EdgeInsets.zero,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-              Badge(
-                key: const ValueKey('track-filter-badge'),
-                isLabelVisible: hasAppliedFilters,
-                smallSize: 8,
-                child: IconButton(
-                  onPressed: _isLoadingTrackFilterOptions
-                      ? null
-                      : _openTrackFilters,
-                  tooltip: _isLoadingTrackFilterOptions
-                      ? 'Loading filters'
-                      : 'Filter tracks',
-                  icon: Icon(
-                    hasAppliedFilters
-                        ? Icons.filter_alt
-                        : Icons.filter_alt_outlined,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        child: _buildTrackSearch(),
       ),
     );
+  }
+
+  Widget _buildTrackSearch() {
+    final hasAppliedFilters =
+        _selectedTrackAuthorId != null || _selectedTrackAlbumId != null;
+
+    return SizedBox(
+      height: 44,
+      child: Row(
+        spacing: 8,
+        children: [
+          Expanded(
+            child: TextField(
+              key: const ValueKey('track-search-field'),
+              controller: _trackQueryController,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _applyTrackSearch(),
+              decoration: InputDecoration(
+                hintText: 'Search by track name',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest,
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          Badge(
+            key: const ValueKey('track-filter-badge'),
+            isLabelVisible: hasAppliedFilters,
+            smallSize: 8,
+            child: IconButton(
+              onPressed: _isLoadingTrackFilterOptions
+                  ? null
+                  : _openTrackFilters,
+              tooltip: _isLoadingTrackFilterOptions
+                  ? 'Loading filters'
+                  : 'Filter tracks',
+              icon: Icon(
+                hasAppliedFilters
+                    ? Icons.filter_alt
+                    : Icons.filter_alt_outlined,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onCatalogPathChanged(List<String> path) {
+    if (!mounted || _destination != _MainDestination.catalogSubmissions) {
+      return;
+    }
+    if (_catalogPath.join('\u0000') == path.join('\u0000')) return;
+    setState(() => _catalogPath = path);
   }
 
   void _handleTrackListState(BuildContext context, TrackListState state) {
@@ -766,6 +817,10 @@ class _MainShellState extends State<MainShell> {
 
   void _selectDestination(_MainDestination destination) {
     setState(() {
+      if (destination != _destination &&
+          destination == _MainDestination.catalogSubmissions) {
+        _catalogPath = const ['Catalog submissions'];
+      }
       _destination = destination;
     });
   }
