@@ -298,7 +298,7 @@ class _MainShellState extends State<MainShell> {
     return BlocListener<TrackListBloc, TrackListState>(
       listener: _handleTrackListState,
       child: Scaffold(
-        appBar: _buildAppBar(),
+        appBar: useNavigationDrawer ? _buildAppBar() : null,
         drawer: useNavigationDrawer
             ? _buildNavigationDrawer(context, userEmail)
             : null,
@@ -321,34 +321,47 @@ class _MainShellState extends State<MainShell> {
         body: Row(
           children: [
             if (!useNavigationDrawer) ...[
-              _buildNavigationRail(context),
-              const VerticalDivider(width: 1),
+              _buildSidebar(context),
+              VerticalDivider(
+                width: 1,
+                thickness: 1,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.12),
+              ),
             ],
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: switch (_destination) {
-                  _MainDestination.tracks => TracksSection(
-                    key: const ValueKey('tracks'),
-                    albumCoverUrlsById: trackAlbumCoverUrls,
-                  ),
-                  _MainDestination.albums => AlbumsListScreen(
-                    key: ValueKey('albums-$_albumsSectionVersion'),
-                  ),
-                  _MainDestination.authors => const AuthorsListScreen(
-                    key: ValueKey('authors'),
-                  ),
-                  _MainDestination.catalogSubmissions =>
-                    const CatalogSubmissionsScreen(
-                      key: ValueKey('catalog-submissions'),
+              child: Column(
+                children: [
+                  if (!useNavigationDrawer) _buildAppBar(),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: switch (_destination) {
+                        _MainDestination.tracks => TracksSection(
+                          key: const ValueKey('tracks'),
+                          albumCoverUrlsById: trackAlbumCoverUrls,
+                        ),
+                        _MainDestination.albums => AlbumsListScreen(
+                          key: ValueKey('albums-$_albumsSectionVersion'),
+                        ),
+                        _MainDestination.authors => const AuthorsListScreen(
+                          key: ValueKey('authors'),
+                        ),
+                        _MainDestination.catalogSubmissions =>
+                          const CatalogSubmissionsScreen(
+                            key: ValueKey('catalog-submissions'),
+                          ),
+                        _MainDestination.utilities => const UtilitiesScreen(
+                          key: ValueKey('utilities'),
+                        ),
+                        _MainDestination.settings => const SettingsScreen(
+                          key: ValueKey('settings'),
+                        ),
+                      },
                     ),
-                  _MainDestination.utilities => const UtilitiesScreen(
-                    key: ValueKey('utilities'),
                   ),
-                  _MainDestination.settings => const SettingsScreen(
-                    key: ValueKey('settings'),
-                  ),
-                },
+                ],
               ),
             ),
           ],
@@ -557,7 +570,7 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  Widget _buildNavigationRail(BuildContext context) {
+  Widget _buildSidebar(BuildContext context) {
     final canManageAccessControl = context.select(
       (AuthBloc bloc) =>
           bloc.state.session?.user.hasPermission(
@@ -566,35 +579,129 @@ class _MainShellState extends State<MainShell> {
           false,
     );
     final destinations = _visibleMainDestinations(context);
-    final accessControlIndex = destinations.length;
-    final signOutIndex = accessControlIndex + (canManageAccessControl ? 1 : 0);
-    return NavigationRail(
-      selectedIndex: destinations.indexOf(_destination),
-      onDestinationSelected: (index) {
-        if (canManageAccessControl && index == accessControlIndex) {
-          Navigator.of(context).pushNamed(AccessControlRoute.routeName);
-          return;
-        }
-        if (index == signOutIndex) {
-          _confirmSignOut();
-          return;
-        }
-        _selectDestination(destinations[index]);
-      },
-      labelType: NavigationRailLabelType.all,
-      destinations: [
-        for (final destination in destinations) _railDestination(destination),
-        if (canManageAccessControl)
-          const NavigationRailDestination(
-            icon: Icon(Icons.shield_outlined),
-            selectedIcon: Icon(Icons.shield),
-            label: Text('Access Control'),
-          ),
-        const NavigationRailDestination(
-          icon: Icon(Icons.logout),
-          label: Text('Sign out'),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final foreground = isDark ? Colors.white : theme.colorScheme.onSurface;
+    final accent = isDark ? const Color(0xFFA5E7A5) : const Color(0xFF236B36);
+
+    return Container(
+      width: 190,
+      color: isDark ? const Color(0xFF0E1511) : theme.colorScheme.surface,
+      child: SafeArea(
+        right: false,
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 17, 12, 27),
+              child: Row(
+                children: [
+                  Icon(Icons.graphic_eq, size: 27, color: accent),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Text(
+                      'Esketit Music',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: foreground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                children: [
+                  for (final destination in destinations)
+                    _sidebarItem(
+                      context,
+                      icon: _destination == destination
+                          ? _destinationAppearance(destination).$2
+                          : _destinationAppearance(destination).$1,
+                      label: _destinationAppearance(destination).$3,
+                      selected: _destination == destination,
+                      onTap: () => _selectDestination(destination),
+                    ),
+                  if (canManageAccessControl)
+                    _sidebarItem(
+                      context,
+                      icon: Icons.shield_outlined,
+                      label: 'Access Control',
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pushNamed(AccessControlRoute.routeName),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 17, 12, 12),
+                    child: Divider(
+                      height: 1,
+                      color: foreground.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  _sidebarItem(
+                    context,
+                    icon: Icons.logout,
+                    label: 'Sign out',
+                    onTap: _confirmSignOut,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _sidebarItem(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool selected = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = selected
+        ? (isDark ? const Color(0xFFA5E7A5) : const Color(0xFF236B36))
+        : Theme.of(context).colorScheme.onSurface;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Material(
+        color: selected
+            ? (isDark ? const Color(0xFF193B20) : const Color(0xFFE3F2E3))
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(9),
+          onTap: onTap,
+          child: SizedBox(
+            height: 39,
+            child: Row(
+              children: [
+                const SizedBox(width: 16),
+                Icon(icon, size: 19, color: color),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: color,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -680,15 +787,6 @@ class _MainShellState extends State<MainShell> {
       _MainDestination.utilities,
       _MainDestination.settings,
     ];
-  }
-
-  NavigationRailDestination _railDestination(_MainDestination destination) {
-    final (icon, selectedIcon, label) = _destinationAppearance(destination);
-    return NavigationRailDestination(
-      icon: Icon(icon),
-      selectedIcon: Icon(selectedIcon),
-      label: Text(label),
-    );
   }
 
   NavigationDrawerDestination _drawerDestination(_MainDestination destination) {
