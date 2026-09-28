@@ -201,14 +201,22 @@ class _RequesterCard extends StatelessWidget {
   }
 }
 
-class _ActiveReview extends StatelessWidget {
+class _ActiveReview extends StatefulWidget {
   const _ActiveReview({required this.controller});
 
   final CatalogReviewController controller;
 
   @override
+  State<_ActiveReview> createState() => _ActiveReviewState();
+}
+
+class _ActiveReviewState extends State<_ActiveReview> {
+  int? _selectedSubmissionId;
+  int _lastIndex = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final requester = controller.activeRequester!;
+    final controller = widget.controller;
     final ordered = [...controller.submissions]
       ..sort((left, right) {
         int weight(CatalogSubmission item) => switch (item.entityType) {
@@ -224,34 +232,46 @@ class _ActiveReview extends StatelessWidget {
             ? statusComparison
             : weight(left).compareTo(weight(right));
       });
+    final selectedIndex = ordered.isEmpty
+        ? -1
+        : _selectedSubmissionId == null
+        ? 0
+        : ordered.indexWhere((item) => item.id == _selectedSubmissionId);
+    final currentIndex = selectedIndex < 0 && ordered.isNotEmpty
+        ? _lastIndex.clamp(0, ordered.length - 1)
+        : selectedIndex;
+    final current = currentIndex < 0 ? null : ordered[currentIndex];
+
+    void select(int index) {
+      setState(() {
+        _selectedSubmissionId = ordered[index].id;
+        _lastIndex = index;
+      });
+    }
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Reviewing ${requester.email}',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  if (controller.activeLease != null)
-                    Text(
-                      'Lease expires ${_formatDateTime(controller.activeLease!.expiresAt)}',
-                    ),
-                ],
-              ),
-            ),
-            OutlinedButton.icon(
-              key: const ValueKey('end-review'),
-              onPressed: controller.isMutating ? null : controller.endReview,
-              icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('End review'),
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            key: const ValueKey('end-review'),
+            onPressed: controller.isMutating ? null : controller.endReview,
+            icon: const Icon(Icons.stop_circle_outlined),
+            label: const Text('End review'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _ReviewNavigationHeader(
+          requester: controller.activeRequester!,
+          lease: controller.activeLease,
+          submission: current,
+          currentIndex: currentIndex,
+          total: ordered.length,
+          onPrevious: currentIndex > 0 ? () => select(currentIndex - 1) : null,
+          onNext: currentIndex >= 0 && currentIndex < ordered.length - 1
+              ? () => select(currentIndex + 1)
+              : null,
         ),
         if (controller.notice != null) ...[
           const SizedBox(height: 12),
@@ -271,11 +291,150 @@ class _ActiveReview extends StatelessWidget {
             padding: EdgeInsets.symmetric(vertical: 64),
             child: Center(child: Text('No submissions remain in this review.')),
           ),
-        for (final submission in ordered) ...[
-          _ReviewSubmissionCard(submission: submission, controller: controller),
+        if (current != null) ...[
+          _ReviewSubmissionCard(submission: current, controller: controller),
           const SizedBox(height: 12),
         ],
       ],
+    );
+  }
+}
+
+class _ReviewNavigationHeader extends StatelessWidget {
+  const _ReviewNavigationHeader({
+    required this.requester,
+    required this.lease,
+    required this.submission,
+    required this.currentIndex,
+    required this.total,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final CatalogReviewRequester requester;
+  final CatalogReviewLease? lease;
+  final CatalogSubmission? submission;
+  final int currentIndex;
+  final int total;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final details = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          submission == null
+              ? 'No submission selected'
+              : 'Submission #${submission!.id}',
+          style: theme.textTheme.bodyMedium,
+        ),
+        Text(
+          submission?.status == CatalogSubmissionStatus.pendingReview
+              ? 'In review'
+              : submission?.status.label ?? 'Waiting for submissions',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+    final navigation = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('${currentIndex < 0 ? 0 : currentIndex + 1} of $total'),
+        const SizedBox(width: 8),
+        IconButton(
+          key: const ValueKey('previous-review-submission'),
+          tooltip: 'Previous submission',
+          onPressed: onPrevious,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        IconButton(
+          key: const ValueKey('next-review-submission'),
+          tooltip: 'Next submission',
+          onPressed: onNext,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    );
+
+    return Container(
+      key: const ValueKey('review-navigation-header'),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final requesterInfo = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: colors.primaryContainer,
+                foregroundColor: colors.onPrimaryContainer,
+                child: const Icon(Icons.person_outline),
+              ),
+              const SizedBox(width: 16),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Reviewing ${requester.email}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    if (lease != null)
+                      Text(
+                        'Lease expires ${_formatDateTime(lease!.expiresAt)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          );
+
+          if (constraints.maxWidth < 680) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                requesterInfo,
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: details),
+                    navigation,
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: requesterInfo),
+              const SizedBox(height: 48, child: VerticalDivider(width: 24)),
+              SizedBox(width: 170, child: details),
+              const Spacer(),
+              navigation,
+            ],
+          );
+        },
+      ),
     );
   }
 }

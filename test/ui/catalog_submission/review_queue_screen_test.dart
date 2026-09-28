@@ -81,10 +81,63 @@ void main() {
     );
     expect(repository.requestChangesCalls, 0);
   });
+
+  testWidgets('shows one submission and switches with the review header', (
+    tester,
+  ) async {
+    final repository = _FakeReviewRepository(includeSecondSubmission: true);
+    await tester.pumpWidget(
+      RepositoryProvider<CatalogSubmissionRepository>.value(
+        value: repository,
+        child: const MaterialApp(
+          home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('start-review-7')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('review-navigation-header')),
+      findsOneWidget,
+    );
+    expect(find.text('Submission #10'), findsOneWidget);
+    expect(find.text('1 of 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-submission-10')), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('previous-review-submission')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Submission #11'), findsOneWidget);
+    expect(find.text('2 of 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
+    expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('next-review-submission')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
 }
 
 class _FakeReviewRepository extends Fake
     implements CatalogSubmissionRepository {
+  _FakeReviewRepository({this.includeSecondSubmission = false});
+
+  final bool includeSecondSubmission;
   int requestChangesCalls = 0;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
@@ -129,7 +182,23 @@ class _FakeReviewRepository extends Fake
   Future<List<CatalogSubmission>> getReviewSubmissions(
     int requesterId,
     String leaseToken,
-  ) async => [submission];
+  ) async => [
+    submission,
+    if (includeSecondSubmission)
+      CatalogSubmission(
+        id: 11,
+        entityType: CatalogSubmissionEntityType.album,
+        entityId: 43,
+        requesterUserId: 7,
+        status: CatalogSubmissionStatus.pendingReview,
+        snapshot: const {'title': 'Second album'},
+        entity: const {'title': 'Second album'},
+        feedback: const [],
+        createdAt: DateTime.utc(2026, 9, 26),
+        submittedAt: DateTime.utc(2026, 9, 26),
+        updatedAt: DateTime.utc(2026, 9, 26),
+      ),
+  ];
 
   @override
   Future<CatalogSubmission> requestChanges(
