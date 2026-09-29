@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/catalog_submission.dart';
+import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
@@ -311,66 +312,104 @@ class _ActiveReviewState extends State<_ActiveReview> {
       });
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Stack(
       children: [
-        if (widget.showEndReviewButton) ...[
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              key: const ValueKey('end-review'),
-              onPressed: controller.isMutating ? null : controller.endReview,
-              icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('End review'),
-            ),
+        ListView(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            16,
+            16,
+            current?.status == CatalogSubmissionStatus.pendingReview ? 192 : 16,
           ),
-          const SizedBox(height: 12),
-        ],
-        _ReviewNavigationHeader(
-          requester: controller.activeRequester!,
-          lease: controller.activeLease,
-          submission: current,
-          currentIndex: currentIndex,
-          total: ordered.length,
-          onPrevious: currentIndex > 0 ? () => select(currentIndex - 1) : null,
-          onNext: currentIndex >= 0 && currentIndex < ordered.length - 1
-              ? () => select(currentIndex + 1)
-              : null,
-        ),
-        if (controller.notice != null) ...[
-          const SizedBox(height: 12),
-          _MessageCard(message: controller.notice!),
-        ],
-        if (controller.errorMessage != null) ...[
-          const SizedBox(height: 12),
-          _MessageCard(message: controller.errorMessage!, isError: true),
-        ],
-        if (controller.isLoadingReview || controller.isMutating) ...[
-          const SizedBox(height: 12),
-          const LinearProgressIndicator(),
-        ],
-        const SizedBox(height: 12),
-        if (!controller.isLoadingReview && ordered.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 64),
-            child: Center(child: Text('No submissions remain in this review.')),
-          ),
-        if (current != null) ...[
-          if (current.entityType == CatalogSubmissionEntityType.track) ...[
-            _TrackPreviewCard(
-              trackId: current.entityId,
-              leaseToken: controller.leaseToken,
+          children: [
+            if (widget.showEndReviewButton) ...[
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('end-review'),
+                  onPressed: controller.isMutating
+                      ? null
+                      : controller.endReview,
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: const Text('End review'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            _ReviewNavigationHeader(
+              requester: controller.activeRequester!,
+              lease: controller.activeLease,
+              submission: current,
+              currentIndex: currentIndex,
+              total: ordered.length,
+              onPrevious: currentIndex > 0
+                  ? () => select(currentIndex - 1)
+                  : null,
+              onNext: currentIndex >= 0 && currentIndex < ordered.length - 1
+                  ? () => select(currentIndex + 1)
+                  : null,
             ),
+            if (controller.notice != null) ...[
+              const SizedBox(height: 12),
+              _MessageCard(message: controller.notice!),
+            ],
+            if (controller.errorMessage != null) ...[
+              const SizedBox(height: 12),
+              _MessageCard(message: controller.errorMessage!, isError: true),
+            ],
+            if (controller.isLoadingReview || controller.isMutating) ...[
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(),
+            ],
             const SizedBox(height: 12),
+            if (!controller.isLoadingReview && ordered.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 64),
+                child: Center(
+                  child: Text('No submissions remain in this review.'),
+                ),
+              ),
+            if (current != null) ...[
+              if (current.entityType == CatalogSubmissionEntityType.track) ...[
+                TrackInformationCard(
+                  submission: current,
+                  relatedSubmissions: controller.submissions,
+                  requesterEmail: controller.activeRequester!.email,
+                ),
+                const SizedBox(height: 12),
+                _TrackPreviewCard(
+                  trackId: current.entityId,
+                  leaseToken: controller.leaseToken,
+                ),
+                const SizedBox(height: 12),
+                _SourceMetadataCard(
+                  sourceMetadata: current.retainedEntity['sourceMetadata'],
+                ),
+                const SizedBox(height: 12),
+              ],
+              _ReviewSubmissionCard(submission: current),
+              const SizedBox(height: 12),
+            ],
           ],
-          _ReviewSubmissionCard(
-            submission: current,
-            controller: controller,
-            relatedSubmissions: controller.submissions,
-            requesterEmail: controller.activeRequester!.email,
+        ),
+        if (current?.status == CatalogSubmissionStatus.pendingReview)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            left: 16,
+            child: SafeArea(
+              top: false,
+              left: false,
+              right: false,
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: _ReviewDecisionBar(
+                  submission: current!,
+                  controller: controller,
+                ),
+              ),
+            ),
           ),
-          const SizedBox(height: 12),
-        ],
       ],
     );
   }
@@ -516,22 +555,12 @@ class _ReviewNavigationHeader extends StatelessWidget {
 }
 
 class _ReviewSubmissionCard extends StatelessWidget {
-  const _ReviewSubmissionCard({
-    required this.submission,
-    required this.controller,
-    required this.relatedSubmissions,
-    required this.requesterEmail,
-  });
+  const _ReviewSubmissionCard({required this.submission});
 
   final CatalogSubmission submission;
-  final CatalogReviewController controller;
-  final List<CatalogSubmission> relatedSubmissions;
-  final String requesterEmail;
 
   @override
   Widget build(BuildContext context) {
-    final canDecide =
-        submission.status == CatalogSubmissionStatus.pendingReview;
     return Card(
       key: ValueKey('review-submission-${submission.id}'),
       child: Padding(
@@ -557,14 +586,6 @@ class _ReviewSubmissionCard extends StatelessWidget {
                 ],
               ),
               SubmissionStatusBadge(status: submission.status),
-              const SizedBox(height: 16),
-            ],
-            if (submission.entityType == CatalogSubmissionEntityType.track) ...[
-              TrackInformationCard(
-                submission: submission,
-                relatedSubmissions: relatedSubmissions,
-                requesterEmail: requesterEmail,
-              ),
               const SizedBox(height: 16),
             ],
             Align(
@@ -605,59 +626,79 @@ class _ReviewSubmissionCard extends StatelessWidget {
                   ),
                 ),
             ],
-            const SizedBox(height: 12),
-            if (!canDecide)
+            if (submission.status != CatalogSubmissionStatus.pendingReview) ...[
+              const SizedBox(height: 12),
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Context only — only pending submissions can receive a decision.',
                 ),
-              )
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.end,
-                children: [
-                  FilledButton.tonalIcon(
-                    key: ValueKey('request-changes-${submission.id}'),
-                    onPressed: controller.isMutating
-                        ? null
-                        : () => _feedbackDecision(
-                            context,
-                            CatalogReviewAction.requestChanges,
-                          ),
-                    icon: const Icon(Icons.edit_note),
-                    label: const Text('Request changes'),
-                  ),
-                  FilledButton.icon(
-                    key: ValueKey('approve-${submission.id}'),
-                    onPressed: controller.isMutating
-                        ? null
-                        : () => controller.decide(
-                            submission: submission,
-                            action: CatalogReviewAction.approve,
-                          ),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Approve'),
-                  ),
-                  FilledButton.icon(
-                    key: ValueKey('reject-${submission.id}'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                      foregroundColor: Theme.of(context).colorScheme.onError,
-                    ),
-                    onPressed: controller.isMutating
-                        ? null
-                        : () => _feedbackDecision(
-                            context,
-                            CatalogReviewAction.reject,
-                          ),
-                    icon: const Icon(Icons.block),
-                    label: const Text('Reject permanently'),
-                  ),
-                ],
               ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewDecisionBar extends StatelessWidget {
+  const _ReviewDecisionBar({
+    required this.submission,
+    required this.controller,
+  });
+
+  final CatalogSubmission submission;
+  final CatalogReviewController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      key: const ValueKey('review-decision-bar'),
+      constraints: const BoxConstraints(maxWidth: 570),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.end,
+          children: [
+            FilledButton.tonalIcon(
+              key: ValueKey('request-changes-${submission.id}'),
+              onPressed: controller.isMutating
+                  ? null
+                  : () => _feedbackDecision(
+                      context,
+                      CatalogReviewAction.requestChanges,
+                    ),
+              icon: const Icon(Icons.edit_note),
+              label: const Text('Request changes'),
+            ),
+            FilledButton.icon(
+              key: ValueKey('approve-${submission.id}'),
+              onPressed: controller.isMutating
+                  ? null
+                  : () => controller.decide(
+                      submission: submission,
+                      action: CatalogReviewAction.approve,
+                    ),
+              icon: const Icon(Icons.check),
+              label: const Text('Approve'),
+            ),
+            FilledButton.icon(
+              key: ValueKey('reject-${submission.id}'),
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.error,
+                foregroundColor: colors.onError,
+              ),
+              onPressed: controller.isMutating
+                  ? null
+                  : () =>
+                        _feedbackDecision(context, CatalogReviewAction.reject),
+              icon: const Icon(Icons.block),
+              label: const Text('Reject permanently'),
+            ),
           ],
         ),
       ),
@@ -725,6 +766,84 @@ class _TrackPreviewCard extends StatelessWidget {
             repository: context.read<CatalogSubmissionRepository>(),
             leaseToken: leaseToken,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SourceMetadataCard extends StatelessWidget {
+  const _SourceMetadataCard({required this.sourceMetadata});
+
+  final Object? sourceMetadata;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final items = parseTrackSourceMetadata(sourceMetadata);
+
+    return Container(
+      key: const ValueKey('source-metadata-card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.list_alt_outlined, size: 18, color: colors.onSurface),
+              const SizedBox(width: 8),
+              Text(
+                'Source metadata',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          if (items.isEmpty)
+            const Text('No source metadata.')
+          else
+            LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Provider')),
+                      DataColumn(label: Text('Kind')),
+                      DataColumn(label: Text('Identity')),
+                      DataColumn(label: Text('URL')),
+                    ],
+                    rows: [
+                      for (final item in items)
+                        DataRow(
+                          cells: [
+                            DataCell(SelectableText(item.provider)),
+                            DataCell(SelectableText(item.kind ?? '—')),
+                            DataCell(
+                              SelectableText(
+                                jsonEncode(item.normalizedIdentity),
+                              ),
+                            ),
+                            DataCell(SelectableText(item.normalizedUrl ?? '—')),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

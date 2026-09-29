@@ -30,9 +30,20 @@ void main() {
     expect(find.text('Reviewing requester@example.com'), findsOneWidget);
     expect(find.text('Track'), findsWidgets);
     expect(find.text('Track information'), findsOneWidget);
-    expect(find.text('Raw JSON'), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('track-information-card')),
+        matching: find.byKey(const ValueKey('review-submission-10')),
+      ),
+      findsNothing,
+    );
     expect(find.byType(ExpansionTile), findsNothing);
     expect(find.text('Edit'), findsNothing);
+    final decisionBar = find.byKey(const ValueKey('review-decision-bar'));
+    final reviewBounds = tester.getBottomRight(find.byType(ReviewQueueScreen));
+    final barPosition = tester.getBottomRight(decisionBar);
+    expect(barPosition.dx, closeTo(reviewBounds.dx - 16, 1));
+    expect(barPosition.dy, closeTo(reviewBounds.dy - 16, 1));
     expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -43,8 +54,60 @@ void main() {
     expect(find.text('Track preview'), findsOneWidget);
     expect(find.byKey(const ValueKey('track-preview-card')), findsOneWidget);
     expect(
+      tester
+          .getTopLeft(find.byKey(const ValueKey('track-information-card')))
+          .dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('track-preview-card'))).dy,
+      ),
+    );
+    expect(
       find.ancestor(
         of: find.byKey(const ValueKey('staged-audio-progress-42')),
+        matching: find.byKey(const ValueKey('review-submission-10')),
+      ),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('source-metadata-card')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Source metadata'), findsOneWidget);
+    expect(tester.widget<DataTable>(find.byType(DataTable)).rows, hasLength(2));
+    expect(find.text('youtube_music'), findsOneWidget);
+    expect(find.text('telegram'), findsOneWidget);
+    expect(find.text('{"videoId":"abc123"}'), findsOneWidget);
+    expect(
+      find.text('https://music.youtube.com/watch?v=abc123'),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('source-metadata-card')),
+        matching: find.byKey(const ValueKey('review-submission-10')),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('track-preview-card'))).dy,
+      lessThan(
+        tester
+            .getTopLeft(find.byKey(const ValueKey('source-metadata-card')))
+            .dy,
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('review-submission-10')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Raw JSON'), findsOneWidget);
+    expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
+    expect(tester.getBottomRight(decisionBar), barPosition);
+    expect(
+      find.ancestor(
+        of: decisionBar,
         matching: find.byKey(const ValueKey('review-submission-10')),
       ),
       findsNothing,
@@ -65,10 +128,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('start-review-7')));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('request-changes-10')),
-    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('request-changes-10')));
     await tester.pumpAndSettle();
@@ -133,7 +192,10 @@ void main() {
     expect(find.text('Submission #10'), findsOneWidget);
     expect(selectedNames.last, 'Track');
     expect(find.text('1 of 2'), findsOneWidget);
-    expect(find.byKey(const ValueKey('review-submission-10')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('track-information-card')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
     expect(
       tester
@@ -153,6 +215,8 @@ void main() {
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
     expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
+    expect(find.byKey(const ValueKey('approve-10')), findsNothing);
+    expect(find.byKey(const ValueKey('approve-11')), findsOneWidget);
     expect(find.text('Second album'), findsOneWidget);
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsNothing);
@@ -168,6 +232,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('end-review')));
     await tester.pumpAndSettle();
     expect(selectedNames.last, isNull);
+    expect(find.byKey(const ValueKey('review-decision-bar')), findsNothing);
   });
 }
 
@@ -193,7 +258,21 @@ class _FakeReviewRepository extends Fake
     requesterUserId: 7,
     status: CatalogSubmissionStatus.pendingReview,
     snapshot: const {'name': 'Track'},
-    entity: const {'name': 'Track'},
+    entity: const {
+      'name': 'Track',
+      'sourceMetadata': [
+        {
+          'provider': 'youtube_music',
+          'kind': 'stream',
+          'identity': {'videoId': 'abc123'},
+          'url': 'https://music.youtube.com/watch?v=abc123',
+        },
+        {
+          'provider': 'telegram',
+          'identity': {'messageId': 42},
+        },
+      ],
+    },
     feedback: const [],
     createdAt: DateTime.utc(2026, 9, 26),
     submittedAt: DateTime.utc(2026, 9, 26),
