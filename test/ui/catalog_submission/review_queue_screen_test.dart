@@ -34,6 +34,21 @@ void main() {
     expect(find.byType(ExpansionTile), findsNothing);
     expect(find.text('Edit'), findsNothing);
     expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('track-preview-card')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Track preview'), findsOneWidget);
+    expect(find.byKey(const ValueKey('track-preview-card')), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('staged-audio-progress-42')),
+        matching: find.byKey(const ValueKey('review-submission-10')),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('validates required feedback and non-negative penalty', (
@@ -137,6 +152,7 @@ void main() {
     expect(find.text('2 of 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
+    expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
     expect(find.text('Second album'), findsOneWidget);
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsNothing);

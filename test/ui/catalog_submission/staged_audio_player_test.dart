@@ -30,7 +30,45 @@ void main() {
         find.byKey(const ValueKey('staged-audio-progress-42')),
         findsOneWidget,
       );
-      expect(find.text('0:00 / 0:00'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('staged-audio-position-42')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('staged-audio-duration-42')),
+        findsOneWidget,
+      );
+      expect(find.text('0:00'), findsNWidgets(2));
+      expect(
+        tester.getSize(find.byTooltip('Play staged audio')),
+        const Size(56, 56),
+      );
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+      expect(
+        find.byKey(const ValueKey('staged-audio-volume-42')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Mute staged audio'), findsOneWidget);
+      await tester.tap(find.byTooltip('Mute staged audio'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<Slider>(
+              find.byKey(const ValueKey('staged-audio-volume-42')),
+            )
+            .value,
+        0,
+      );
+      await tester.tap(find.byTooltip('Unmute staged audio'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<Slider>(
+              find.byKey(const ValueKey('staged-audio-volume-42')),
+            )
+            .value,
+        0.7,
+      );
       await tester.tap(find.byTooltip('Play staged audio'));
       await tester.pump(const Duration(milliseconds: 100));
 

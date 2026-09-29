@@ -1,7 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/ui/catalog_submission/audio_object_url.dart';
+import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -35,11 +36,14 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
   StreamSubscription<Duration?>? _durationSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
   int _sourceGeneration = 0;
+  double _volume = 0.7;
+  double _lastAudibleVolume = 0.7;
 
   @override
   void initState() {
     super.initState();
     _player = AudioPlayer();
+    unawaited(_player.setVolume(_volume));
     _urlFactory = widget.objectUrlFactory ?? BrowserAudioObjectUrlFactory();
     _positionSubscription = _player.positionStream.listen((position) {
       if (!mounted) return;
@@ -80,41 +84,130 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
   Widget build(BuildContext context) {
     final playing = _player.playing;
     final durationMs = _duration.inMilliseconds;
-    final maxMs = durationMs > 0 ? durationMs : 1;
-    final positionMs = _position.inMilliseconds.clamp(0, maxMs).toDouble();
+    final progress = durationMs > 0
+        ? (_position.inMilliseconds / durationMs).clamp(0.0, 1.0)
+        : 0.0;
+    final colors = Theme.of(context).colorScheme;
+
+    final playButton = SizedBox.square(
+      dimension: 56,
+      child: IconButton.filled(
+        tooltip: playing ? 'Pause staged audio' : 'Play staged audio',
+        onPressed: _isLoading ? null : _toggle,
+        iconSize: 32,
+        style: IconButton.styleFrom(
+          backgroundColor: colors.primary,
+          foregroundColor: colors.onPrimary,
+          disabledBackgroundColor: colors.primary.withValues(alpha: 0.6),
+          minimumSize: const Size.square(56),
+          padding: EdgeInsets.zero,
+        ),
+        icon: _isLoading
+            ? const SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+      ),
+    );
+    final waveform = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 42,
+          child: _WaveformProgress(
+            key: ValueKey('staged-audio-progress-${widget.trackId}'),
+            seed: widget.trackId,
+            progress: progress,
+            activeColor: colors.primary,
+            inactiveColor: colors.onSurfaceVariant.withValues(alpha: 0.5),
+            onSeek: durationMs > 0 && !_isLoading
+                ? (fraction) => _seekTo(durationMs * fraction)
+                : null,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              _formatDuration(_position),
+              key: ValueKey('staged-audio-position-${widget.trackId}'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              _formatDuration(_duration),
+              key: ValueKey('staged-audio-duration-${widget.trackId}'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ],
+    );
+    final volumeControl = SizedBox(
+      width: 160,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: _volume == 0 ? 'Unmute staged audio' : 'Mute staged audio',
+            onPressed: _toggleMute,
+            iconSize: 20,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              _volume == 0
+                  ? Icons.volume_off_outlined
+                  : Icons.volume_up_outlined,
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              ),
+              child: Slider(
+                key: ValueKey('staged-audio-volume-${widget.trackId}'),
+                value: _volume,
+                onChanged: _setVolume,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            IconButton.filledTonal(
-              tooltip: playing ? 'Pause staged audio' : 'Play staged audio',
-              onPressed: _isLoading ? null : _toggle,
-              icon: _isLoading
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(playing ? Icons.pause : Icons.play_arrow),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Slider(
-                key: ValueKey('staged-audio-progress-${widget.trackId}'),
-                value: positionMs,
-                max: maxMs.toDouble(),
-                onChanged: !_isLoading && durationMs > 0 ? _seekTo : null,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
-              key: ValueKey('staged-audio-time-${widget.trackId}'),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 520) {
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      playButton,
+                      const SizedBox(width: 12),
+                      Expanded(child: waveform),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Align(alignment: Alignment.centerRight, child: volumeControl),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                playButton,
+                const SizedBox(width: 12),
+                Expanded(child: waveform),
+                const SizedBox(width: 16),
+                volumeControl,
+              ],
+            );
+          },
         ),
         if (_error != null)
           Padding(
@@ -126,6 +219,16 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
           ),
       ],
     );
+  }
+
+  void _setVolume(double volume) {
+    if (volume > 0) _lastAudibleVolume = volume;
+    setState(() => _volume = volume);
+    unawaited(_player.setVolume(volume));
+  }
+
+  void _toggleMute() {
+    _setVolume(_volume == 0 ? _lastAudibleVolume : 0);
   }
 
   Future<void> _toggle() async {
@@ -217,4 +320,102 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
     _player.dispose();
     super.dispose();
   }
+}
+
+class _WaveformProgress extends StatelessWidget {
+  const _WaveformProgress({
+    super.key,
+    required this.seed,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onSeek,
+  });
+
+  final int seed;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+  final ValueChanged<double>? onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        void seek(double x) =>
+            onSeek?.call((x / constraints.maxWidth).clamp(0.0, 1.0));
+
+        return Semantics(
+          label: 'Seek staged audio',
+          value: '${(progress * 100).round()} percent',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: onSeek == null
+                ? null
+                : (details) => seek(details.localPosition.dx),
+            onHorizontalDragUpdate: onSeek == null
+                ? null
+                : (details) => seek(details.localPosition.dx),
+            child: CustomPaint(
+              painter: _VolumeSticksPainter(
+                seed: seed,
+                progress: progress,
+                activeColor: activeColor,
+                inactiveColor: inactiveColor,
+              ),
+              size: Size(constraints.maxWidth, 42),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _VolumeSticksPainter extends CustomPainter {
+  const _VolumeSticksPainter({
+    required this.seed,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  final int seed;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const barWidth = 2.2;
+    const barStep = 3.6;
+    final count = (size.width / barStep).floor();
+    if (count == 0) return;
+    final leftInset = (size.width - (count - 1) * barStep - barWidth) / 2;
+    final activePaint = Paint()..color = activeColor;
+    final inactivePaint = Paint()..color = inactiveColor;
+
+    for (var index = 0; index < count; index++) {
+      final variation = math.sin(index * 0.57 + seed * 0.13).abs();
+      final detail = math.sin(index * 1.71 + seed * 0.29).abs();
+      final swell = math.sin(index * 0.085 + seed * 0.07).abs();
+      final height = 6 + 22 * (0.35 * variation + 0.25 * detail + 0.4 * swell);
+      final x = leftInset + index * barStep;
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(x, (size.height - height) / 2, barWidth, height),
+        const Radius.circular(2),
+      );
+      canvas.drawRRect(
+        rect,
+        index / count < progress ? activePaint : inactivePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VolumeSticksPainter oldDelegate) =>
+      seed != oldDelegate.seed ||
+      progress != oldDelegate.progress ||
+      activeColor != oldDelegate.activeColor ||
+      inactiveColor != oldDelegate.inactiveColor;
 }

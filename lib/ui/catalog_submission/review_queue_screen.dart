@@ -356,6 +356,13 @@ class _ActiveReviewState extends State<_ActiveReview> {
             child: Center(child: Text('No submissions remain in this review.')),
           ),
         if (current != null) ...[
+          if (current.entityType == CatalogSubmissionEntityType.track) ...[
+            _TrackPreviewCard(
+              trackId: current.entityId,
+              leaseToken: controller.leaseToken,
+            ),
+            const SizedBox(height: 12),
+          ],
           _ReviewSubmissionCard(
             submission: current,
             controller: controller,
@@ -598,17 +605,6 @@ class _ReviewSubmissionCard extends StatelessWidget {
                   ),
                 ),
             ],
-            if (submission.entityType == CatalogSubmissionEntityType.track) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: StagedAudioPlayer(
-                  trackId: submission.entityId,
-                  repository: context.read<CatalogSubmissionRepository>(),
-                  leaseToken: controller.leaseToken,
-                ),
-              ),
-            ],
             const SizedBox(height: 12),
             if (!canDecide)
               const Align(
@@ -683,6 +679,54 @@ class _ReviewSubmissionCard extends StatelessWidget {
       action: action,
       message: decision.message,
       ratingPenalty: decision.ratingPenalty,
+    );
+  }
+}
+
+class _TrackPreviewCard extends StatelessWidget {
+  const _TrackPreviewCard({required this.trackId, required this.leaseToken});
+
+  final int trackId;
+  final String? leaseToken;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Container(
+      key: const ValueKey('track-preview-card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.play_circle_filled, size: 18, color: colors.onSurface),
+              const SizedBox(width: 8),
+              Text(
+                'Track preview',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          StagedAudioPlayer(
+            trackId: trackId,
+            repository: context.read<CatalogSubmissionRepository>(),
+            leaseToken: leaseToken,
+          ),
+        ],
+      ),
     );
   }
 }
