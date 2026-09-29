@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
+import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/review_lease_token_store.dart';
@@ -355,7 +356,12 @@ class _ActiveReviewState extends State<_ActiveReview> {
             child: Center(child: Text('No submissions remain in this review.')),
           ),
         if (current != null) ...[
-          _ReviewSubmissionCard(submission: current, controller: controller),
+          _ReviewSubmissionCard(
+            submission: current,
+            controller: controller,
+            relatedSubmissions: controller.submissions,
+            requesterEmail: controller.activeRequester!.email,
+          ),
           const SizedBox(height: 12),
         ],
       ],
@@ -506,10 +512,14 @@ class _ReviewSubmissionCard extends StatelessWidget {
   const _ReviewSubmissionCard({
     required this.submission,
     required this.controller,
+    required this.relatedSubmissions,
+    required this.requesterEmail,
   });
 
   final CatalogSubmission submission;
   final CatalogReviewController controller;
+  final List<CatalogSubmission> relatedSubmissions;
+  final String requesterEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -517,127 +527,150 @@ class _ReviewSubmissionCard extends StatelessWidget {
         submission.status == CatalogSubmissionStatus.pendingReview;
     return Card(
       key: ValueKey('review-submission-${submission.id}'),
-      child: ExpansionTile(
-        initiallyExpanded: canDecide,
-        leading: Icon(switch (submission.entityType) {
-          CatalogSubmissionEntityType.track => Icons.music_note,
-          CatalogSubmissionEntityType.album => Icons.album,
-          CatalogSubmissionEntityType.author => Icons.person,
-        }),
-        title: Text(submission.entityName),
-        subtitle: Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(submission.entityType.label),
-            SubmissionStatusBadge(status: submission.status),
-          ],
-        ),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [
-          SizedBox(
-            width: double.infinity,
-            child: SelectableText(
-              const JsonEncoder.withIndent(
-                ' ',
-              ).convert(submission.retainedEntity),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-            ),
-          ),
-          if (submission.feedback.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            if (submission.entityType != CatalogSubmissionEntityType.track) ...[
+              Row(
+                children: [
+                  Icon(
+                    submission.entityType == CatalogSubmissionEntityType.album
+                        ? Icons.album
+                        : Icons.person,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      submission.entityName,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              SubmissionStatusBadge(status: submission.status),
+              const SizedBox(height: 16),
+            ],
+            if (submission.entityType == CatalogSubmissionEntityType.track) ...[
+              TrackInformationCard(
+                submission: submission,
+                relatedSubmissions: relatedSubmissions,
+                requesterEmail: requesterEmail,
+              ),
+              const SizedBox(height: 16),
+            ],
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Feedback history',
+                'Raw JSON',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
-            for (final feedback in submission.feedback)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(feedback.message),
-                subtitle: Text(
-                  '${feedback.kind.label} · penalty ${feedback.ratingPenalty} · '
-                  '${_formatDateTime(feedback.createdAt)}',
-                ),
-              ),
-          ],
-          if (submission.entityType == CatalogSubmissionEntityType.track) ...[
             const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: StagedAudioPlayer(
-                trackId: submission.entityId,
-                repository: context.read<CatalogSubmissionRepository>(),
-                leaseToken: controller.leaseToken,
+            SizedBox(
+              width: double.infinity,
+              child: SelectableText(
+                const JsonEncoder.withIndent(
+                  ' ',
+                ).convert(submission.retainedEntity),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
               ),
             ),
-            const SizedBox(height: 6),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Approval awards +10 rating points, plus +5 automatically when lyrics exist.',
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (!canDecide)
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Context only — only pending submissions can receive a decision.',
-              ),
-            )
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
-              children: [
-                FilledButton.tonalIcon(
-                  key: ValueKey('request-changes-${submission.id}'),
-                  onPressed: controller.isMutating
-                      ? null
-                      : () => _feedbackDecision(
-                          context,
-                          CatalogReviewAction.requestChanges,
-                        ),
-                  icon: const Icon(Icons.edit_note),
-                  label: const Text('Request changes'),
+            if (submission.feedback.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Feedback history',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                FilledButton.icon(
-                  key: ValueKey('approve-${submission.id}'),
-                  onPressed: controller.isMutating
-                      ? null
-                      : () => controller.decide(
-                          submission: submission,
-                          action: CatalogReviewAction.approve,
-                        ),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Approve'),
-                ),
-                FilledButton.icon(
-                  key: ValueKey('reject-${submission.id}'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                    foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              for (final feedback in submission.feedback)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(feedback.message),
+                  subtitle: Text(
+                    '${feedback.kind.label} · penalty ${feedback.ratingPenalty} · '
+                    '${_formatDateTime(feedback.createdAt)}',
                   ),
-                  onPressed: controller.isMutating
-                      ? null
-                      : () => _feedbackDecision(
-                          context,
-                          CatalogReviewAction.reject,
-                        ),
-                  icon: const Icon(Icons.block),
-                  label: const Text('Reject permanently'),
                 ),
-              ],
-            ),
-        ],
+            ],
+            if (submission.entityType == CatalogSubmissionEntityType.track) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: StagedAudioPlayer(
+                  trackId: submission.entityId,
+                  repository: context.read<CatalogSubmissionRepository>(),
+                  leaseToken: controller.leaseToken,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Approval awards +10 rating points, plus +5 automatically when lyrics exist.',
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (!canDecide)
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Context only — only pending submissions can receive a decision.',
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                children: [
+                  FilledButton.tonalIcon(
+                    key: ValueKey('request-changes-${submission.id}'),
+                    onPressed: controller.isMutating
+                        ? null
+                        : () => _feedbackDecision(
+                            context,
+                            CatalogReviewAction.requestChanges,
+                          ),
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('Request changes'),
+                  ),
+                  FilledButton.icon(
+                    key: ValueKey('approve-${submission.id}'),
+                    onPressed: controller.isMutating
+                        ? null
+                        : () => controller.decide(
+                            submission: submission,
+                            action: CatalogReviewAction.approve,
+                          ),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Approve'),
+                  ),
+                  FilledButton.icon(
+                    key: ValueKey('reject-${submission.id}'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                      foregroundColor: Theme.of(context).colorScheme.onError,
+                    ),
+                    onPressed: controller.isMutating
+                        ? null
+                        : () => _feedbackDecision(
+                            context,
+                            CatalogReviewAction.reject,
+                          ),
+                    icon: const Icon(Icons.block),
+                    label: const Text('Reject permanently'),
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }

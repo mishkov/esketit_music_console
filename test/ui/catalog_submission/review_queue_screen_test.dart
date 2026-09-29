@@ -29,6 +29,9 @@ void main() {
 
     expect(find.text('Reviewing requester@example.com'), findsOneWidget);
     expect(find.text('Track'), findsWidgets);
+    expect(find.text('Track information'), findsOneWidget);
+    expect(find.text('Raw JSON'), findsOneWidget);
+    expect(find.byType(ExpansionTile), findsNothing);
     expect(find.text('Edit'), findsNothing);
     expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
   });
@@ -47,6 +50,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('start-review-7')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('request-changes-10')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('request-changes-10')));
     await tester.pumpAndSettle();
@@ -130,6 +137,9 @@ void main() {
     expect(find.text('2 of 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
+    expect(find.text('Second album'), findsOneWidget);
+    expect(find.text('Raw JSON'), findsOneWidget);
+    expect(find.byType(ExpansionTile), findsNothing);
     expect(
       tester
           .widget<IconButton>(
