@@ -608,13 +608,6 @@ class _ReviewSubmissionCard extends StatelessWidget {
                   leaseToken: controller.leaseToken,
                 ),
               ),
-              const SizedBox(height: 6),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Approval awards +10 rating points, plus +5 automatically when lyrics exist.',
-                ),
-              ),
             ],
             const SizedBox(height: 12),
             if (!canDecide)
