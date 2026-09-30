@@ -1,8 +1,9 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/catalog_submission.dart';
+import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
+import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
@@ -58,11 +59,6 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _controller?.renewNow();
-    } else if (state == AppLifecycleState.detached) {
-      final controller = _controller;
-      if (controller != null) {
-        unawaited(controller.bestEffortRelease());
-      }
     }
   }
 
@@ -370,6 +366,13 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
               ),
             if (current != null) ...[
+              if (current.entityType == CatalogSubmissionEntityType.author) ...[
+                AuthorInformationCard(
+                  key: ValueKey('author-information-${current.id}'),
+                  submission: current,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 TrackInformationCard(
                   submission: current,
@@ -382,6 +385,14 @@ class _ActiveReviewState extends State<_ActiveReview> {
                   leaseToken: controller.leaseToken,
                 ),
                 const SizedBox(height: 12),
+              ],
+              if (current.entityType != CatalogSubmissionEntityType.author) ...[
+                _AdditionalInfoCard(
+                  additionalInfo: current.retainedEntity['additionalInfo'],
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 _SourceMetadataCard(
                   sourceMetadata: current.retainedEntity['sourceMetadata'],
                 ),
@@ -588,24 +599,27 @@ class _ReviewSubmissionCard extends StatelessWidget {
               SubmissionStatusBadge(status: submission.status),
               const SizedBox(height: 16),
             ],
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
+            ExpansionTile(
+              key: ValueKey('raw-json-${submission.id}'),
+              title: Text(
                 'Raw JSON',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: SelectableText(
-                const JsonEncoder.withIndent(
-                  ' ',
-                ).convert(submission.retainedEntity),
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-              ),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: SelectableText(
+                    const JsonEncoder.withIndent(
+                      ' ',
+                    ).convert(submission.retainedEntity),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
             ),
             if (submission.feedback.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -637,6 +651,61 @@ class _ReviewSubmissionCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AdditionalInfoCard extends StatelessWidget {
+  const _AdditionalInfoCard({required this.additionalInfo});
+
+  final Object? additionalInfo;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final items = parseTrackInfos(
+      additionalInfo,
+    ).whereType<TextTrackInfo>().toList();
+
+    return Container(
+      key: const ValueKey('additional-info-card'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.notes_outlined, size: 18, color: colors.onSurface),
+              const SizedBox(width: 8),
+              Text(
+                'Additional info',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          if (items.isEmpty)
+            const Text('No text additional info.')
+          else
+            for (final (index, item) in items.indexed) ...[
+              Text(item.title, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              SelectableText(item.text),
+              if (index < items.length - 1) const SizedBox(height: 12),
+            ],
+        ],
       ),
     );
   }
@@ -724,14 +793,24 @@ class _ReviewDecisionBar extends StatelessWidget {
   }
 }
 
-class _TrackPreviewCard extends StatelessWidget {
+class _TrackPreviewCard extends StatefulWidget {
   const _TrackPreviewCard({required this.trackId, required this.leaseToken});
 
   final int trackId;
   final String? leaseToken;
 
   @override
+  State<_TrackPreviewCard> createState() => _TrackPreviewCardState();
+}
+
+class _TrackPreviewCardState extends State<_TrackPreviewCard>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     return Container(
@@ -762,9 +841,9 @@ class _TrackPreviewCard extends StatelessWidget {
           const Divider(height: 1),
           const SizedBox(height: 12),
           StagedAudioPlayer(
-            trackId: trackId,
+            trackId: widget.trackId,
             repository: context.read<CatalogSubmissionRepository>(),
-            leaseToken: leaseToken,
+            leaseToken: widget.leaseToken,
           ),
         ],
       ),
@@ -814,16 +893,48 @@ class _SourceMetadataCard extends StatelessWidget {
             const Text('No source metadata.')
           else
             LayoutBuilder(
-              builder: (context, constraints) => SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 640) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final (index, item) in items.indexed) ...[
+                        if (index > 0) const Divider(height: 24),
+                        _SourceMetadataField('Provider', item.provider),
+                        _SourceMetadataField('Kind', item.kind ?? '—'),
+                        _SourceMetadataField(
+                          'Identity',
+                          jsonEncode(item.normalizedIdentity),
+                        ),
+                        _SourceMetadataField('URL', item.normalizedUrl ?? '—'),
+                      ],
+                    ],
+                  );
+                }
+
+                return SizedBox(
+                  width: constraints.maxWidth,
                   child: DataTable(
+                    horizontalMargin: 12,
+                    columnSpacing: 16,
+                    dataRowMaxHeight: double.infinity,
                     columns: const [
-                      DataColumn(label: Text('Provider')),
-                      DataColumn(label: Text('Kind')),
-                      DataColumn(label: Text('Identity')),
-                      DataColumn(label: Text('URL')),
+                      DataColumn(
+                        columnWidth: FlexColumnWidth(2),
+                        label: Text('Provider'),
+                      ),
+                      DataColumn(
+                        columnWidth: FlexColumnWidth(1),
+                        label: Text('Kind'),
+                      ),
+                      DataColumn(
+                        columnWidth: FlexColumnWidth(3),
+                        label: Text('Identity'),
+                      ),
+                      DataColumn(
+                        columnWidth: FlexColumnWidth(4),
+                        label: Text('URL'),
+                      ),
                     ],
                     rows: [
                       for (final item in items)
@@ -841,13 +952,32 @@ class _SourceMetadataCard extends StatelessWidget {
                         ),
                     ],
                   ),
-                ),
-              ),
+                );
+              },
             ),
         ],
       ),
     );
   }
+}
+
+class _SourceMetadataField extends StatelessWidget {
+  const _SourceMetadataField(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelMedium),
+        SelectableText(value),
+      ],
+    ),
+  );
 }
 
 class _FeedbackDialog extends StatefulWidget {

@@ -56,6 +56,47 @@ void main() {
     expect(repository.submissionLoads, 1);
   });
 
+  test('the Resume review action renews the saved lease', () async {
+    final repository = _FakeRepository(activeLeaseInQueue: true);
+    final tokens = _MemoryTokens()..value = 'secret';
+    final controller = CatalogReviewController(
+      repository: repository,
+      reviewerId: 8,
+      tokenStore: tokens,
+      heartbeatInterval: const Duration(hours: 1),
+    );
+
+    await controller.startReview(repository.requester);
+
+    expect(controller.hasActiveReview, isTrue);
+    expect(repository.renewCalls, 1);
+    expect(repository.acquireCalls, 0);
+    expect(repository.submissionLoads, 1);
+
+    controller.dispose();
+    expect(repository.releaseCalls, 0);
+    expect(tokens.value, 'secret');
+  });
+
+  test('an unrecoverable own lease reports the missing token', () async {
+    final repository = _FakeRepository(
+      activeLeaseInQueue: true,
+      acquireConflict: true,
+    );
+    final controller = CatalogReviewController(
+      repository: repository,
+      reviewerId: 8,
+      tokenStore: _MemoryTokens(),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.startReview(repository.requester);
+
+    expect(controller.hasActiveReview, isFalse);
+    expect(controller.notice, contains('no longer has its lease token'));
+    expect(repository.acquireCalls, 1);
+  });
+
   test('409 lease loss clears local state and refreshes the queue', () async {
     final repository = _FakeRepository(renewConflict: true);
     final tokens = _MemoryTokens();
@@ -138,10 +179,13 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
   _FakeRepository({
     this.activeLeaseInQueue = false,
     this.renewConflict = false,
+    this.acquireConflict = false,
   });
 
   final bool activeLeaseInQueue;
   final bool renewConflict;
+  final bool acquireConflict;
+  int acquireCalls = 0;
   int queueLoads = 0;
   int submissionLoads = 0;
   int renewCalls = 0;
@@ -197,7 +241,17 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
   }
 
   @override
-  Future<CatalogReviewLease> acquireLease(int requesterId) async => lease;
+  Future<CatalogReviewLease> acquireLease(int requesterId) async {
+    acquireCalls += 1;
+    if (acquireConflict) {
+      throw const HttpAppError(
+        message: 'requester is already being reviewed',
+        path: '/lease',
+        statusCode: 409,
+      );
+    }
+    return lease;
+  }
 
   @override
   Future<CatalogReviewLease> renewLease(

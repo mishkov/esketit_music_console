@@ -285,7 +285,7 @@ class _CoverArt extends StatelessWidget {
         ),
       ),
     );
-    return ClipRRect(
+    final image = ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: SizedBox(
         width: size,
@@ -297,6 +297,63 @@ class _CoverArt extends StatelessWidget {
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) => placeholder,
               ),
+      ),
+    );
+    if (url.isEmpty) return image;
+    return Tooltip(
+      message: 'View album image full screen',
+      child: InkWell(
+        key: const ValueKey('open-album-image'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => showDialog<void>(
+          context: context,
+          builder: (context) => _FullScreenCoverArt(url: url),
+        ),
+        child: image,
+      ),
+    );
+  }
+}
+
+class _FullScreenCoverArt extends StatelessWidget {
+  const _FullScreenCoverArt({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      key: const ValueKey('full-screen-album-image'),
+      backgroundColor: Colors.black,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Center(
+              child: Image.network(
+                url,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white,
+                  size: 48,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              child: IconButton(
+                key: const ValueKey('close-album-image'),
+                tooltip: 'Close album image',
+                color: Colors.white,
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

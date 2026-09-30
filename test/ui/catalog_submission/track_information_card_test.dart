@@ -74,6 +74,34 @@ void main() {
     expect(find.text('Genre'), findsNothing);
     expect(find.text('Duration'), findsNothing);
     expect(find.text('Explicit'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('open-album-image')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('full-screen-album-image')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('full-screen-album-image'))),
+      tester.getSize(find.byType(Scaffold)),
+    );
+    expect(
+      tester
+          .widgetList<Image>(find.byType(Image))
+          .any(
+            (image) =>
+                image.image is NetworkImage &&
+                (image.image as NetworkImage).url ==
+                    'https://example.com/cover.png' &&
+                image.fit == BoxFit.contain,
+          ),
+      isTrue,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('close-album-image')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('full-screen-album-image')), findsNothing);
   });
 
   testWidgets('shows only known fields for a sparse track submission', (
@@ -105,6 +133,7 @@ void main() {
     expect(find.text('Artist'), findsNothing);
     expect(find.text('Album'), findsNothing);
     expect(find.text('Release date'), findsNothing);
+    expect(find.byKey(const ValueKey('open-album-image')), findsNothing);
   });
 
   testWidgets('loads names and photos when related submissions are absent', (

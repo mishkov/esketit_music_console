@@ -69,6 +69,16 @@ class CatalogReviewController extends ChangeNotifier {
     notice = null;
     notifyListeners();
     try {
+      if (requester.activeLease?.reviewerUserId == reviewerId) {
+        final storedToken = _tokenStore.read(
+          reviewerId: reviewerId,
+          requesterId: requester.userId,
+        );
+        if (storedToken != null && storedToken.isNotEmpty) {
+          await _activate(requester, storedToken, renewFirst: true);
+          return;
+        }
+      }
       final lease = await _repository.acquireLease(requester.userId);
       activeLease = lease;
       _tokenStore.write(
@@ -80,8 +90,9 @@ class CatalogReviewController extends ChangeNotifier {
     } on HttpAppError catch (error) {
       if (error.statusCode == 409) {
         _clearLease(requesterId: requester.userId);
-        notice =
-            'The requester is already being reviewed or your previous lease changed.';
+        notice = requester.activeLease?.reviewerUserId == reviewerId
+            ? 'Your review is still locked, but this browser no longer has its lease token. Try again after the lease expires.'
+            : 'The requester is already being reviewed. The queue has been refreshed.';
         await loadQueue(tryResume: false);
       } else {
         errorMessage = describeCatalogError(error);
@@ -259,18 +270,6 @@ class CatalogReviewController extends ChangeNotifier {
     }
   }
 
-  Future<void> bestEffortRelease() async {
-    final requester = activeRequester;
-    final token = _leaseToken;
-    if (requester == null || token == null) return;
-    try {
-      await _repository.releaseLease(requester.userId, token);
-      _clearLease(requesterId: requester.userId);
-    } catch (_) {
-      // Server expiry is authoritative; unload/disposal release is best effort.
-    }
-  }
-
   Future<void> _handleLeaseLoss() async {
     final requesterId = activeRequester?.userId;
     if (requesterId != null) _clearLease(requesterId: requesterId);
@@ -297,7 +296,6 @@ class CatalogReviewController extends ChangeNotifier {
   @override
   void dispose() {
     _heartbeatTimer?.cancel();
-    unawaited(bestEffortRelease());
     super.dispose();
   }
 }
