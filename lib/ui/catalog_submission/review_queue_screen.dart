@@ -5,6 +5,7 @@ import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
+import 'package:esketit_music_console/ui/catalog_submission/album_submission_summary.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
@@ -596,66 +597,66 @@ class _ReviewSubmissionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final details = <Widget>[
+      if (submission.feedback.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Feedback history',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+        ),
+        for (final feedback in submission.feedback)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(feedback.message),
+            subtitle: Text(
+              '${feedback.kind.label} · penalty ${feedback.ratingPenalty} · '
+              '${_formatDateTime(feedback.createdAt)}',
+            ),
+          ),
+      ],
+      if (submission.status != CatalogSubmissionStatus.pendingReview) ...[
+        const SizedBox(height: 12),
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Context only — only pending submissions can receive a decision.',
+          ),
+        ),
+      ],
+    ];
     return Card(
       key: ValueKey('review-submission-${submission.id}'),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (submission.entityType != CatalogSubmissionEntityType.track) ...[
-              Row(
+        child: submission.entityType == CatalogSubmissionEntityType.album
+            ? AlbumSubmissionSummary(submission: submission, children: details)
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    submission.entityType == CatalogSubmissionEntityType.album
-                        ? Icons.album
-                        : Icons.person,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      submission.entityName,
-                      style: Theme.of(context).textTheme.titleMedium,
+                  if (submission.entityType !=
+                      CatalogSubmissionEntityType.track) ...[
+                    Row(
+                      children: [
+                        const Icon(Icons.person),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            submission.entityName,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                    SubmissionStatusBadge(status: submission.status),
+                    const SizedBox(height: 16),
+                  ],
+                  SubmissionRawJson(submission: submission),
+                  ...details,
                 ],
               ),
-              SubmissionStatusBadge(status: submission.status),
-              if (submission.entityType != CatalogSubmissionEntityType.album)
-                const SizedBox(height: 16),
-            ],
-            if (submission.entityType != CatalogSubmissionEntityType.album)
-              SubmissionRawJson(submission: submission),
-            if (submission.feedback.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Feedback history',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              for (final feedback in submission.feedback)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(feedback.message),
-                  subtitle: Text(
-                    '${feedback.kind.label} · penalty ${feedback.ratingPenalty} · '
-                    '${_formatDateTime(feedback.createdAt)}',
-                  ),
-                ),
-            ],
-            if (submission.status != CatalogSubmissionStatus.pendingReview) ...[
-              const SizedBox(height: 12),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Context only — only pending submissions can receive a decision.',
-                ),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }
