@@ -4,6 +4,7 @@ import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
+import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
@@ -392,6 +393,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
               ],
+              ExternalLinksInformationCard(
+                additionalInfo: current.retainedEntity['additionalInfo'],
+              ),
+              const SizedBox(height: 12),
               if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 _SourceMetadataCard(
                   sourceMetadata: current.retainedEntity['sourceMetadata'],

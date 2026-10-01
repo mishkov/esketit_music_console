@@ -8,6 +8,51 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final entityType in CatalogSubmissionEntityType.values) {
+    testWidgets('shows separate external links for ${entityType.label}', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<CatalogSubmissionRepository>.value(
+              value: _FakeReviewRepository(entityType: entityType),
+            ),
+            RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-review-7')));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(
+        const ValueKey('external-links-information-card'),
+      );
+      await tester.scrollUntilVisible(
+        card,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.text('Streaming link')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('https://example.com')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('Recorded live')),
+        findsNothing,
+      );
+    });
+  }
+
   testWidgets(
     'shows author name and navigable photos without unsupported blocks',
     (tester) async {
@@ -169,7 +214,10 @@ void main() {
         ),
         findsNothing,
       );
-      expect(find.text('Provider'), findsNWidgets(2));
+      expect(
+        find.descendant(of: card, matching: find.text('Provider')),
+        findsNWidgets(2),
+      );
       expect(
         find.text('https://music.youtube.com/watch?v=abc123'),
         findsOneWidget,
@@ -307,7 +355,17 @@ void main() {
             .dy,
       ),
     );
-    expect(tester.widget<DataTable>(find.byType(DataTable)).rows, hasLength(2));
+    expect(
+      tester
+          .widget<DataTable>(
+            find.descendant(
+              of: find.byKey(const ValueKey('source-metadata-card')),
+              matching: find.byType(DataTable),
+            ),
+          )
+          .rows,
+      hasLength(2),
+    );
     expect(find.text('youtube_music'), findsOneWidget);
     expect(find.text('telegram'), findsOneWidget);
     expect(find.text('{"videoId":"abc123"}'), findsOneWidget);
@@ -332,9 +390,15 @@ void main() {
     expect(find.text('Recorded live'), findsOneWidget);
     expect(find.text('Notes'), findsOneWidget);
     expect(find.text('First take'), findsOneWidget);
-    expect(find.text('Streaming link'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('additional-info-card')),
+        matching: find.text('Streaming link'),
+      ),
+      findsNothing,
+    );
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('review-submission-10')),
+      find.text('Raw JSON'),
       200,
       scrollable: find.byType(Scrollable).first,
     );
@@ -464,6 +528,7 @@ void main() {
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
     expect(find.text('No text additional info.'), findsOneWidget);
+    expect(find.text('No external links.'), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(
@@ -482,9 +547,13 @@ void main() {
 
 class _FakeReviewRepository extends Fake
     implements CatalogSubmissionRepository {
-  _FakeReviewRepository({this.includeSecondSubmission = false});
+  _FakeReviewRepository({
+    this.includeSecondSubmission = false,
+    this.entityType = CatalogSubmissionEntityType.track,
+  });
 
   final bool includeSecondSubmission;
+  final CatalogSubmissionEntityType entityType;
   int requestChangesCalls = 0;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
@@ -497,7 +566,7 @@ class _FakeReviewRepository extends Fake
 
   CatalogSubmission get submission => CatalogSubmission(
     id: 10,
-    entityType: CatalogSubmissionEntityType.track,
+    entityType: entityType,
     entityId: 42,
     requesterUserId: 7,
     status: CatalogSubmissionStatus.pendingReview,
