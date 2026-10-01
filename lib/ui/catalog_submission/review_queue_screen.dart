@@ -6,6 +6,7 @@ import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_code
 import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
@@ -453,11 +454,19 @@ class _ReviewNavigationHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          submission == null
-              ? 'No submission selected'
-              : 'Submission #${submission!.id}',
-          style: theme.textTheme.bodyMedium,
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              submission == null
+                  ? 'No submission selected'
+                  : 'Submission #${submission!.id}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (submission != null)
+              SubmissionTypeBadge(entityType: submission!.entityType),
+          ],
         ),
         Text(
           submission?.status == CatalogSubmissionStatus.pendingReview
@@ -554,8 +563,7 @@ class _ReviewNavigationHeader extends StatelessWidget {
             children: [
               Expanded(child: requesterInfo),
               const SizedBox(height: 48, child: VerticalDivider(width: 24)),
-              SizedBox(width: 170, child: details),
-              const Spacer(),
+              Expanded(child: details),
               navigation,
             ],
           );
