@@ -515,6 +515,21 @@ void main() {
     expect(find.text('Second album'), findsOneWidget);
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
+    final albumCard = find.byKey(const ValueKey('review-submission-11'));
+    final rawJsonCard = find.byKey(const ValueKey('raw-json-card-11'));
+    expect(rawJsonCard, findsOneWidget);
+    expect(
+      find.descendant(of: albumCard, matching: find.text('Raw JSON')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: rawJsonCard, matching: find.text('Raw JSON')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getBottomLeft(albumCard).dy,
+      lessThan(tester.getTopLeft(rawJsonCard).dy),
+    );
     expect(find.text('No text additional info.'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('next-review-submission')));
