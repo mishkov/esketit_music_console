@@ -580,6 +580,10 @@ void main() {
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
     final albumCard = find.byKey(const ValueKey('review-submission-11'));
+    expect(
+      find.descendant(of: albumCard, matching: find.text('Sep 27, 2026')),
+      findsOneWidget,
+    );
     final rawJsonCard = find.byKey(const ValueKey('raw-json-card-11'));
     expect(rawJsonCard, findsOneWidget);
     expect(
@@ -726,7 +730,10 @@ class _FakeReviewRepository extends Fake
         requesterUserId: 7,
         status: CatalogSubmissionStatus.pendingReview,
         snapshot: const {'title': 'Second album'},
-        entity: const {'title': 'Second album'},
+        entity: const {
+          'title': 'Second album',
+          'releaseDate': '2026-09-27T00:00:00Z',
+        },
         feedback: const [],
         createdAt: DateTime.utc(2026, 9, 26),
         submittedAt: DateTime.utc(2026, 9, 26),
