@@ -580,6 +580,26 @@ void main() {
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
     final albumCard = find.byKey(const ValueKey('review-submission-11'));
+    final additionalInfoCard = find.byKey(
+      const ValueKey('additional-info-card'),
+    );
+    final externalLinksCard = find.byKey(
+      const ValueKey('external-links-information-card'),
+    );
+    expect(
+      tester
+          .getBottomLeft(find.byKey(const ValueKey('review-navigation-header')))
+          .dy,
+      lessThan(tester.getTopLeft(albumCard).dy),
+    );
+    expect(
+      tester.getBottomLeft(albumCard).dy,
+      lessThan(tester.getTopLeft(additionalInfoCard).dy),
+    );
+    expect(
+      tester.getBottomLeft(additionalInfoCard).dy,
+      lessThan(tester.getTopLeft(externalLinksCard).dy),
+    );
     expect(
       find.descendant(of: albumCard, matching: find.text('Sep 27, 2026')),
       findsOneWidget,
@@ -595,7 +615,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      tester.getBottomLeft(albumCard).dy,
+      tester.getBottomLeft(externalLinksCard).dy,
       lessThan(tester.getTopLeft(rawJsonCard).dy),
     );
     expect(find.text('No text additional info.'), findsOneWidget);
