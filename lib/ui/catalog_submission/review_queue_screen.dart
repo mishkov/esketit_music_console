@@ -5,6 +5,7 @@ import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
 import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
@@ -401,6 +402,16 @@ class _ActiveReviewState extends State<_ActiveReview> {
               ],
               _ReviewSubmissionCard(submission: current),
               const SizedBox(height: 12),
+              if (current.entityType == CatalogSubmissionEntityType.album) ...[
+                Card(
+                  key: ValueKey('raw-json-card-${current.id}'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SubmissionRawJson(submission: current),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
           ],
         ),
@@ -605,30 +616,11 @@ class _ReviewSubmissionCard extends StatelessWidget {
                 ],
               ),
               SubmissionStatusBadge(status: submission.status),
-              const SizedBox(height: 16),
+              if (submission.entityType != CatalogSubmissionEntityType.album)
+                const SizedBox(height: 16),
             ],
-            ExpansionTile(
-              key: ValueKey('raw-json-${submission.id}'),
-              title: Text(
-                'Raw JSON',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: SelectableText(
-                    const JsonEncoder.withIndent(
-                      ' ',
-                    ).convert(submission.retainedEntity),
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ),
+            if (submission.entityType != CatalogSubmissionEntityType.album)
+              SubmissionRawJson(submission: submission),
             if (submission.feedback.isNotEmpty) ...[
               const SizedBox(height: 12),
               Align(
