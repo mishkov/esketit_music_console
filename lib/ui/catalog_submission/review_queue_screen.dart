@@ -278,9 +278,9 @@ class _ActiveReviewState extends State<_ActiveReview> {
     final ordered = [...controller.submissions]
       ..sort((left, right) {
         int weight(CatalogSubmission item) => switch (item.entityType) {
-          CatalogSubmissionEntityType.track => 0,
+          CatalogSubmissionEntityType.author => 0,
           CatalogSubmissionEntityType.album => 1,
-          CatalogSubmissionEntityType.author => 2,
+          CatalogSubmissionEntityType.track => 2,
         };
         final statusComparison =
             left.status == CatalogSubmissionStatus.pendingReview

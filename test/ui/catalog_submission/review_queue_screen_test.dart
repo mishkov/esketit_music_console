@@ -200,6 +200,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final preview = find.byType(StagedAudioPlayer);
+      await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         preview,
         200,
@@ -225,7 +227,9 @@ void main() {
 
       scrollable.position.jumpTo(0);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+      await tester.tap(
+        find.byKey(const ValueKey('previous-review-submission')),
+      );
       await tester.pumpAndSettle();
       expect(playerState.mounted, isFalse);
     },
@@ -406,14 +410,22 @@ void main() {
     expect(repository.requestChangesCalls, 0);
   });
 
-  testWidgets('shows one submission and switches with the review header', (
+  testWidgets('reviews authors, albums, then tracks with the review header', (
     tester,
   ) async {
-    final repository = _FakeReviewRepository(includeSecondSubmission: true);
+    final repository = _FakeReviewRepository(
+      includeSecondSubmission: true,
+      includeAuthorSubmission: true,
+    );
     final selectedNames = <String?>[];
     await tester.pumpWidget(
-      RepositoryProvider<CatalogSubmissionRepository>.value(
-        value: repository,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<CatalogSubmissionRepository>.value(
+            value: repository,
+          ),
+          RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+        ],
         child: MaterialApp(
           home: Scaffold(
             body: ReviewQueueScreen(
@@ -432,13 +444,16 @@ void main() {
       find.byKey(const ValueKey('review-navigation-header')),
       findsOneWidget,
     );
-    expect(find.text('Submission #10'), findsOneWidget);
-    expect(selectedNames.last, 'Track');
-    expect(find.text('1 of 2'), findsOneWidget);
+    expect(find.text('Submission #12'), findsOneWidget);
+    expect(selectedNames.last, 'The Full Author Name');
+    expect(find.text('1 of 3'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('track-information-card')),
+      find.byKey(const ValueKey('author-information-card')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('approve-12')), findsOneWidget);
+    expect(find.byKey(const ValueKey('track-information-card')), findsNothing);
+    expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
     expect(
       tester
@@ -454,7 +469,7 @@ void main() {
 
     expect(find.text('Submission #11'), findsOneWidget);
     expect(selectedNames.last, 'Second album');
-    expect(find.text('2 of 2'), findsOneWidget);
+    expect(find.text('2 of 3'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
     expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
@@ -464,6 +479,19 @@ void main() {
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
     expect(find.text('No text additional info.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Submission #10'), findsOneWidget);
+    expect(selectedNames.last, 'Track');
+    expect(find.text('3 of 3'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('track-information-card')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(
@@ -472,6 +500,13 @@ void main() {
           .onPressed,
       isNull,
     );
+
+    await tester.tap(find.byKey(const ValueKey('previous-review-submission')));
+    await tester.pumpAndSettle();
+    expect(selectedNames.last, 'Second album');
+    await tester.tap(find.byKey(const ValueKey('previous-review-submission')));
+    await tester.pumpAndSettle();
+    expect(selectedNames.last, 'The Full Author Name');
 
     await tester.tap(find.byKey(const ValueKey('end-review')));
     await tester.pumpAndSettle();
@@ -482,9 +517,13 @@ void main() {
 
 class _FakeReviewRepository extends Fake
     implements CatalogSubmissionRepository {
-  _FakeReviewRepository({this.includeSecondSubmission = false});
+  _FakeReviewRepository({
+    this.includeSecondSubmission = false,
+    this.includeAuthorSubmission = false,
+  });
 
   final bool includeSecondSubmission;
+  final bool includeAuthorSubmission;
   int requestChangesCalls = 0;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
@@ -570,6 +609,7 @@ class _FakeReviewRepository extends Fake
         submittedAt: DateTime.utc(2026, 9, 26),
         updatedAt: DateTime.utc(2026, 9, 26),
       ),
+    if (includeAuthorSubmission) _FakeAuthorReviewRepository().submission,
   ];
 
   @override
