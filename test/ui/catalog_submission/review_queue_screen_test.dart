@@ -1,6 +1,7 @@
 import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/ui/catalog_submission/review_queue_screen.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:flutter/material.dart';
@@ -75,6 +76,13 @@ void main() {
 
       final card = find.byKey(const ValueKey('author-information-card'));
       expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('review-navigation-header')),
+          matching: find.text('Author'),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.descendant(of: card, matching: find.text('The Full Author Name')),
         findsOneWidget,
@@ -248,6 +256,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final preview = find.byType(StagedAudioPlayer);
+      await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         preview,
         200,
@@ -273,7 +283,9 @@ void main() {
 
       scrollable.position.jumpTo(0);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+      await tester.tap(
+        find.byKey(const ValueKey('previous-review-submission')),
+      );
       await tester.pumpAndSettle();
       expect(playerState.mounted, isFalse);
     },
@@ -470,15 +482,33 @@ void main() {
     expect(repository.requestChangesCalls, 0);
   });
 
-  testWidgets('shows one submission and switches with the review header', (
+  testWidgets('reviews authors, albums, then tracks with the review header', (
     tester,
   ) async {
-    final repository = _FakeReviewRepository(includeSecondSubmission: true);
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final repository = _FakeReviewRepository(
+      includeSecondSubmission: true,
+      includeAuthorSubmission: true,
+    );
     final selectedNames = <String?>[];
     await tester.pumpWidget(
-      RepositoryProvider<CatalogSubmissionRepository>.value(
-        value: repository,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<CatalogSubmissionRepository>.value(
+            value: repository,
+          ),
+          RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+        ],
         child: MaterialApp(
+          theme: ThemeData(
+            colorSchemeSeed: Colors.green,
+            brightness: Brightness.dark,
+            useMaterial3: true,
+          ),
           home: Scaffold(
             body: ReviewQueueScreen(
               reviewerId: 8,
@@ -496,13 +526,31 @@ void main() {
       find.byKey(const ValueKey('review-navigation-header')),
       findsOneWidget,
     );
-    expect(find.text('Submission #10'), findsOneWidget);
-    expect(selectedNames.last, 'Track');
-    expect(find.text('1 of 2'), findsOneWidget);
+    expect(find.text('Submission #12'), findsOneWidget);
+    final typeBadge = find.byType(SubmissionTypeBadge);
     expect(
-      find.byKey(const ValueKey('track-information-card')),
+      find.descendant(of: typeBadge, matching: find.text('Author')),
       findsOneWidget,
     );
+    final chip = tester.widget<Chip>(
+      find.descendant(of: typeBadge, matching: find.byType(Chip)),
+    );
+    final colors = Theme.of(tester.element(typeBadge)).colorScheme;
+    expect(chip.backgroundColor, colors.primaryContainer);
+    expect(chip.labelStyle?.color, colors.onPrimaryContainer);
+    expect(
+      tester.getTopLeft(typeBadge).dx,
+      greaterThan(tester.getTopRight(find.text('Submission #12')).dx),
+    );
+    expect(selectedNames.last, 'The Full Author Name');
+    expect(find.text('1 of 3'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('author-information-card')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('approve-12')), findsOneWidget);
+    expect(find.byKey(const ValueKey('track-information-card')), findsNothing);
+    expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
     expect(
       tester
@@ -517,8 +565,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Submission #11'), findsOneWidget);
+    expect(
+      find.descendant(of: typeBadge, matching: find.text('Album')),
+      findsOneWidget,
+    );
     expect(selectedNames.last, 'Second album');
-    expect(find.text('2 of 2'), findsOneWidget);
+    expect(find.text('2 of 3'), findsOneWidget);
     expect(find.byKey(const ValueKey('review-submission-10')), findsNothing);
     expect(find.byKey(const ValueKey('review-submission-11')), findsOneWidget);
     expect(find.byKey(const ValueKey('track-preview-card')), findsNothing);
@@ -527,8 +579,40 @@ void main() {
     expect(find.text('Second album'), findsOneWidget);
     expect(find.text('Raw JSON'), findsOneWidget);
     expect(find.byType(ExpansionTile), findsOneWidget);
+    final albumCard = find.byKey(const ValueKey('review-submission-11'));
+    final rawJsonCard = find.byKey(const ValueKey('raw-json-card-11'));
+    expect(rawJsonCard, findsOneWidget);
+    expect(
+      find.descendant(of: albumCard, matching: find.text('Raw JSON')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: rawJsonCard, matching: find.text('Raw JSON')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getBottomLeft(albumCard).dy,
+      lessThan(tester.getTopLeft(rawJsonCard).dy),
+    );
     expect(find.text('No text additional info.'), findsOneWidget);
     expect(find.text('No external links.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('next-review-submission')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Submission #10'), findsOneWidget);
+    expect(
+      find.descendant(of: typeBadge, matching: find.text('Track')),
+      findsOneWidget,
+    );
+    expect(selectedNames.last, 'Track');
+    expect(find.text('3 of 3'), findsOneWidget);
+    expect(find.byKey(const ValueKey('review-submission-11')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('track-information-card')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('approve-10')), findsOneWidget);
     expect(
       tester
           .widget<IconButton>(
@@ -537,6 +621,13 @@ void main() {
           .onPressed,
       isNull,
     );
+
+    await tester.tap(find.byKey(const ValueKey('previous-review-submission')));
+    await tester.pumpAndSettle();
+    expect(selectedNames.last, 'Second album');
+    await tester.tap(find.byKey(const ValueKey('previous-review-submission')));
+    await tester.pumpAndSettle();
+    expect(selectedNames.last, 'The Full Author Name');
 
     await tester.tap(find.byKey(const ValueKey('end-review')));
     await tester.pumpAndSettle();
@@ -550,10 +641,12 @@ class _FakeReviewRepository extends Fake
   _FakeReviewRepository({
     this.includeSecondSubmission = false,
     this.entityType = CatalogSubmissionEntityType.track,
+    this.includeAuthorSubmission = false,
   });
 
   final bool includeSecondSubmission;
   final CatalogSubmissionEntityType entityType;
+  final bool includeAuthorSubmission;
   int requestChangesCalls = 0;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
@@ -639,6 +732,7 @@ class _FakeReviewRepository extends Fake
         submittedAt: DateTime.utc(2026, 9, 26),
         updatedAt: DateTime.utc(2026, 9, 26),
       ),
+    if (includeAuthorSubmission) _FakeAuthorReviewRepository().submission,
   ];
 
   @override

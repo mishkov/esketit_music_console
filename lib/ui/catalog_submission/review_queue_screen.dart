@@ -6,7 +6,9 @@ import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_code
 import 'package:esketit_music_console/ui/catalog_submission/author_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
@@ -279,9 +281,9 @@ class _ActiveReviewState extends State<_ActiveReview> {
     final ordered = [...controller.submissions]
       ..sort((left, right) {
         int weight(CatalogSubmission item) => switch (item.entityType) {
-          CatalogSubmissionEntityType.track => 0,
+          CatalogSubmissionEntityType.author => 0,
           CatalogSubmissionEntityType.album => 1,
-          CatalogSubmissionEntityType.author => 2,
+          CatalogSubmissionEntityType.track => 2,
         };
         final statusComparison =
             left.status == CatalogSubmissionStatus.pendingReview
@@ -405,6 +407,16 @@ class _ActiveReviewState extends State<_ActiveReview> {
               ],
               _ReviewSubmissionCard(submission: current),
               const SizedBox(height: 12),
+              if (current.entityType == CatalogSubmissionEntityType.album) ...[
+                Card(
+                  key: ValueKey('raw-json-card-${current.id}'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SubmissionRawJson(submission: current),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
           ],
         ),
@@ -458,11 +470,19 @@ class _ReviewNavigationHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          submission == null
-              ? 'No submission selected'
-              : 'Submission #${submission!.id}',
-          style: theme.textTheme.bodyMedium,
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              submission == null
+                  ? 'No submission selected'
+                  : 'Submission #${submission!.id}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            if (submission != null)
+              SubmissionTypeBadge(entityType: submission!.entityType),
+          ],
         ),
         Text(
           submission?.status == CatalogSubmissionStatus.pendingReview
@@ -559,8 +579,7 @@ class _ReviewNavigationHeader extends StatelessWidget {
             children: [
               Expanded(child: requesterInfo),
               const SizedBox(height: 48, child: VerticalDivider(width: 24)),
-              SizedBox(width: 170, child: details),
-              const Spacer(),
+              Expanded(child: details),
               navigation,
             ],
           );
@@ -602,30 +621,11 @@ class _ReviewSubmissionCard extends StatelessWidget {
                 ],
               ),
               SubmissionStatusBadge(status: submission.status),
-              const SizedBox(height: 16),
+              if (submission.entityType != CatalogSubmissionEntityType.album)
+                const SizedBox(height: 16),
             ],
-            ExpansionTile(
-              key: ValueKey('raw-json-${submission.id}'),
-              title: Text(
-                'Raw JSON',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: SelectableText(
-                    const JsonEncoder.withIndent(
-                      ' ',
-                    ).convert(submission.retainedEntity),
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ),
+            if (submission.entityType != CatalogSubmissionEntityType.album)
+              SubmissionRawJson(submission: submission),
             if (submission.feedback.isNotEmpty) ...[
               const SizedBox(height: 12),
               Align(
