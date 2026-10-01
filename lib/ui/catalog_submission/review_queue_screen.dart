@@ -370,6 +370,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
               ),
             if (current != null) ...[
+              if (current.entityType == CatalogSubmissionEntityType.album) ...[
+                _ReviewSubmissionCard(submission: current),
+                const SizedBox(height: 12),
+              ],
               if (current.entityType == CatalogSubmissionEntityType.author) ...[
                 AuthorInformationCard(
                   key: ValueKey('author-information-${current.id}'),
@@ -406,8 +410,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
               ],
-              _ReviewSubmissionCard(submission: current),
-              const SizedBox(height: 12),
+              if (current.entityType != CatalogSubmissionEntityType.album) ...[
+                _ReviewSubmissionCard(submission: current),
+                const SizedBox(height: 12),
+              ],
               if (current.entityType == CatalogSubmissionEntityType.album) ...[
                 Card(
                   key: ValueKey('raw-json-card-${current.id}'),
