@@ -7,8 +7,8 @@ import 'package:esketit_music_console/ui/catalog_submission/author_information_c
 import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_submission_summary.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_history_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
-import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
@@ -455,11 +455,11 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType != CatalogSubmissionEntityType.album) ...[
+              if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 _ReviewSubmissionCard(submission: current),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType == CatalogSubmissionEntityType.album) ...[
+              if (current.entityType != CatalogSubmissionEntityType.track) ...[
                 Card(
                   key: ValueKey('raw-json-card-${current.id}'),
                   child: Padding(
@@ -467,6 +467,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                     child: SubmissionRawJson(submission: current),
                   ),
                 ),
+                const SizedBox(height: 12),
+              ],
+              if (current.entityType == CatalogSubmissionEntityType.author) ...[
+                SubmissionHistoryCard(submission: current),
                 const SizedBox(height: 12),
               ],
             ],
@@ -687,23 +691,6 @@ class _ReviewSubmissionCard extends StatelessWidget {
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (submission.entityType !=
-                      CatalogSubmissionEntityType.track) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.person),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            submission.entityName,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SubmissionStatusBadge(status: submission.status),
-                    const SizedBox(height: 16),
-                  ],
                   SubmissionRawJson(submission: submission),
                   ...details,
                 ],
@@ -722,9 +709,9 @@ class _AdditionalInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final items = parseTrackInfos(
-      additionalInfo,
-    ).whereType<TextTrackInfo>().toList();
+    final items = parseTrackInfos(additionalInfo)
+        .whereType<TextTrackInfo>()
+        .toList();
 
     return Container(
       key: const ValueKey('additional-info-card'),
