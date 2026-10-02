@@ -5,10 +5,82 @@ import 'package:esketit_music_console/ui/catalog_submission/submission_type_badg
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
 import 'package:esketit_music_console/use_case/track/storage/tracks_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher/link.dart';
 
 void main() {
+  for (final width in [1200.0, 400.0]) {
+    testWidgets('opens source metadata URL in a new tab at width $width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const channel = MethodChannel('plugins.flutter.io/url_launcher');
+      final launches = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        launches.add(call);
+        return true;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
+
+      await tester.pumpWidget(
+        RepositoryProvider<CatalogSubmissionRepository>.value(
+          value: _FakeReviewRepository(),
+          child: const MaterialApp(
+            home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-review-7')));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(const ValueKey('source-metadata-card'));
+      await tester.scrollUntilVisible(
+        card,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final linkFinder = find.descendant(of: card, matching: find.byType(Link));
+      final link = tester.widget<Link>(linkFinder);
+      const url = 'https://music.youtube.com/watch?v=abc123';
+      expect(link.uri, Uri.parse(url));
+      expect(link.target, LinkTarget.blank);
+      expect(
+        find.descendant(of: card, matching: find.text('—')),
+        findsNWidgets(2),
+      );
+      expect(
+        find.descendant(of: card, matching: find.byType(DataTable)),
+        width < 640 ? findsNothing : findsOneWidget,
+      );
+
+      final urlText = find.descendant(of: card, matching: find.text(url));
+      await Scrollable.ensureVisible(tester.element(urlText), alignment: 0.3);
+      await tester.pumpAndSettle();
+      await tester.tap(urlText);
+      await tester.pumpAndSettle();
+      expect(launches, hasLength(1));
+      expect(launches.single.method, 'launch');
+      expect(launches.single.arguments['url'], url);
+      expect(launches.single.arguments['useWebView'], isFalse);
+      expect(launches.single.arguments['useSafariVC'], isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final entityType in CatalogSubmissionEntityType.values) {
     testWidgets('shows separate external links for ${entityType.label}', (
       tester,
