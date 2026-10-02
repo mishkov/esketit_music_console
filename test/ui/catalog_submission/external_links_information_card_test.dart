@@ -1,6 +1,8 @@
 import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher/link.dart';
 
 void main() {
   for (final width in [800.0, 400.0, 320.0]) {
@@ -11,6 +13,21 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
+
+      const channel = MethodChannel('plugins.flutter.io/url_launcher');
+      final launches = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        launches.add(call);
+        return true;
+      });
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          null,
+        ),
+      );
 
       final provider = 'provider_${'long' * 12}';
       final title = 'A long descriptive streaming link title ' * 5;
@@ -58,6 +75,12 @@ void main() {
       expect(find.text('—'), findsOneWidget);
       expect(find.text('Credits'), findsNothing);
       expect(find.text('Recorded live'), findsNothing);
+      final links = tester.widgetList<Link>(find.byType(Link)).toList();
+      expect(links.map((link) => link.uri), [
+        Uri.parse(url),
+        Uri.parse('https://example.com/other'),
+      ]);
+      expect(links.every((link) => link.target == LinkTarget.blank), isTrue);
       expect(
         find.descendant(
           of: card,
@@ -82,6 +105,18 @@ void main() {
           greaterThan(tester.getTopLeft(card).dx),
         );
       }
+      for (final link in links) {
+        final urlText = find.text(link.uri.toString());
+        await Scrollable.ensureVisible(tester.element(urlText));
+        await tester.pumpAndSettle();
+        await tester.tap(urlText);
+        await tester.pumpAndSettle();
+      }
+      expect(launches.map((call) => call.method), ['launch', 'launch']);
+      expect(launches.map((call) => call.arguments['url']), [
+        url,
+        'https://example.com/other',
+      ]);
       expect(tester.takeException(), isNull);
     });
   }
