@@ -135,6 +135,119 @@ void main() {
     },
   );
 
+  for (final status in [
+    CatalogSubmissionStatus.pendingReview,
+    CatalogSubmissionStatus.changesRequested,
+  ]) {
+    testWidgets('separates author JSON and history for ${status.label}', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final isPending = status == CatalogSubmissionStatus.pendingReview;
+      final feedback = isPending
+          ? <CatalogSubmissionFeedback>[]
+          : [
+              CatalogSubmissionFeedback(
+                id: 1,
+                submissionId: 12,
+                kind: CatalogSubmissionStatus.changesRequested,
+                message: 'Use another photo',
+                ratingPenalty: 1,
+                createdAt: DateTime(2026, 10, 1, 23, 50),
+              ),
+            ];
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<CatalogSubmissionRepository>.value(
+              value: _FakeAuthorReviewRepository(
+                status: status,
+                feedback: feedback,
+              ),
+            ),
+            RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-review-7')));
+      await tester.pumpAndSettle();
+
+      final rawJson = find.byKey(const ValueKey('raw-json-card-12'));
+      final history = find.byKey(const ValueKey('history-card-12'));
+      expect(rawJson, findsOneWidget);
+      expect(history, findsOneWidget);
+      expect(find.byKey(const ValueKey('review-submission-12')), findsNothing);
+      expect(find.text('The Full Author Name'), findsOneWidget);
+      expect(
+        find.descendant(of: rawJson, matching: find.text('Raw JSON')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: history, matching: find.text('History')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getBottomLeft(rawJson).dy,
+        lessThan(tester.getTopLeft(history).dy),
+      );
+      expect(
+        find.descendant(of: history, matching: find.byType(ExpansionTile)),
+        findsNothing,
+      );
+      if (isPending) {
+        expect(find.text('No feedback history.'), findsOneWidget);
+        expect(find.byKey(const ValueKey('approve-12')), findsOneWidget);
+      } else {
+        expect(
+          find.descendant(
+            of: history,
+            matching: find.text('Use another photo'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Changes requested · penalty 1 · 2026-10-01 23:50'),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            'Context only — only pending submissions can receive a decision.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('review-decision-bar')), findsNothing);
+      }
+
+      expect(find.textContaining('"currentName"'), findsNothing);
+      await tester.tap(find.text('Raw JSON'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: rawJson,
+          matching: find.textContaining('"currentName"'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: history,
+          matching: find.textContaining('"currentName"'),
+        ),
+        findsNothing,
+      );
+      await tester.tap(find.text('Raw JSON'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('"currentName"'), findsNothing);
+    });
+  }
+
   testWidgets('wraps source metadata within the card at desktop width', (
     tester,
   ) async {
@@ -777,19 +890,27 @@ class _FakeReviewRepository extends Fake
 }
 
 class _FakeAuthorReviewRepository extends _FakeReviewRepository {
+  _FakeAuthorReviewRepository({
+    this.status = CatalogSubmissionStatus.pendingReview,
+    this.feedback = const [],
+  });
+
+  final CatalogSubmissionStatus status;
+  final List<CatalogSubmissionFeedback> feedback;
+
   @override
   CatalogSubmission get submission => CatalogSubmission(
     id: 12,
     entityType: CatalogSubmissionEntityType.author,
     entityId: 44,
     requesterUserId: 7,
-    status: CatalogSubmissionStatus.pendingReview,
+    status: status,
     snapshot: const {},
     entity: const {
       'currentName': 'The Full Author Name',
       'photos': ['first.jpg', 'second.jpg'],
     },
-    feedback: const [],
+    feedback: feedback,
     createdAt: DateTime.utc(2026, 9, 26),
     submittedAt: DateTime.utc(2026, 9, 26),
     updatedAt: DateTime.utc(2026, 9, 26),
