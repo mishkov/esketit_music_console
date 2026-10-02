@@ -46,6 +46,8 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
   String? _lastReportedSubmissionName;
   bool? _lastReportedReviewIsActive;
   bool? _lastReportedReviewIsMutating;
+  String? _lastReportedErrorMessage;
+  bool _isErrorDialogOpen = false;
 
   @override
   void didChangeDependencies() {
@@ -55,7 +57,9 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
       repository: context.read<CatalogSubmissionRepository>(),
       reviewerId: widget.reviewerId,
       tokenStore: BrowserReviewLeaseTokenStore(),
-    )..loadQueue();
+    );
+    _controller!.addListener(_onControllerChanged);
+    _controller!.loadQueue();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -69,6 +73,7 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -83,6 +88,7 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
       animation: controller,
       builder: (context, _) {
         _reportReviewAction(controller);
+        _reportError(controller);
         if (controller.hasActiveReview) {
           return _ActiveReview(
             controller: controller,
@@ -94,6 +100,45 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
         return _RequesterQueue(controller: controller);
       },
     );
+  }
+
+  void _onControllerChanged() {
+    // A fast retry can clear and set the same error between rendered frames.
+    // Observe the reset directly so each failed attempt gets its own dialog.
+    if (_controller?.errorMessage == null) _lastReportedErrorMessage = null;
+  }
+
+  void _reportError(CatalogReviewController controller) {
+    final message = controller.errorMessage;
+    if (message == null) {
+      _lastReportedErrorMessage = null;
+      return;
+    }
+    if (controller.isMutating ||
+        _isErrorDialogOpen ||
+        _lastReportedErrorMessage == message) {
+      return;
+    }
+    _lastReportedErrorMessage = message;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || controller.errorMessage != message) return;
+      _isErrorDialogOpen = true;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Review failed'),
+          content: SelectableText(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _isErrorDialogOpen = false);
+    });
   }
 
   void _reportSelectedSubmission(String? name) {
