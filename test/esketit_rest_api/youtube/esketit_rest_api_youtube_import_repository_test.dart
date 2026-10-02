@@ -167,6 +167,13 @@ class _FakeHttpClient implements HttpClient {
   Object? lastPostBody;
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> post(
     String path, {
     Map<String, String>? headers,

@@ -191,6 +191,13 @@ class _RecordingHttpClient implements HttpClient {
   final List<String> deletedPaths = [];
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> get(String path, {Map<String, String>? headers}) async =>
       _response(getResponses, path);
 

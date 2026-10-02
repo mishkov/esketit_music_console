@@ -1,3 +1,5 @@
+import 'package:esketit_music_console/esketit_rest_api/mcp/esketit_rest_api_mcp_settings_repository.dart';
+import 'package:esketit_music_console/use_case/mcp/mcp_settings_repository.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
 import 'package:esketit_music_console/domain/catalog_publication_status.dart';
@@ -106,6 +108,11 @@ class AppRoot extends StatelessWidget {
 
     return MultiRepositoryProvider(
       providers: [
+        RepositoryProvider<McpSettingsRepository>(
+          create: (_) => EsketitRestApiMcpSettingsRepository(
+            httpClient: authenticatedHttpClient,
+          ),
+        ),
         RepositoryProvider<AccessControlRepository>(
           create: (_) => EsketitRestApiAccessControlRepository(
             httpClient: authenticatedHttpClient,

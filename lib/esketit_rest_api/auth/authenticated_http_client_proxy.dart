@@ -49,6 +49,20 @@ class AuthenticatedHttpClientProxy implements HttpClient {
   }
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) {
+    return _sendAuthenticated(
+      path: path,
+      headers: headers,
+      send: (mergedHeaders) =>
+          _httpClient.patch(path, headers: mergedHeaders, body: body),
+    );
+  }
+
+  @override
   Future<HttpResponse> put(
     String path, {
     Map<String, String>? headers,

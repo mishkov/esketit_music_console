@@ -97,6 +97,13 @@ class _FakeHttpClient implements HttpClient {
   List<int>? lastPostMultipartBytes;
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> get(String path, {Map<String, String>? headers}) async {
     lastGetPath = path;
     final response = _getResponses[path];

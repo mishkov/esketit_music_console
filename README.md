@@ -27,3 +27,16 @@ Ensure that main.dart has right base url then run
 ```bash
 flutter build web --release --base-href /console/ && rsync -av --delete build/web/ mishkov@46.101.162.92:/var/www/esketit_music_console/console
 ```
+
+## AI agent / MCP settings
+
+Administrators with `access_control.manage` can open **Settings → AI Agent / MCP**
+to select the user connected agents act as and edit workflow/upload guidance.
+Selecting **Disabled — no acting user** stops agent operations. Saves use the
+settings version to prevent overwriting another administrator's changes; on a
+conflict, the editor preserves the draft until you reload and review it.
+
+This screen requires the server's `GET/PATCH /api/mcp/settings` endpoints.
+The dedicated MCP connection credential is configured on the server and is
+never returned to the console. The screen reports whether it is configured.
+Permissions, upload limits, and review lifecycle rules remain server-enforced.

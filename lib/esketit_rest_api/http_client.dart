@@ -14,6 +14,12 @@ abstract class HttpClient {
     Object? body,
   });
 
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  });
+
   Future<HttpResponse> put(
     String path, {
     Map<String, String>? headers,

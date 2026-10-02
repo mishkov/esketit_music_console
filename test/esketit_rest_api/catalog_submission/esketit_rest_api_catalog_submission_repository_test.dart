@@ -313,6 +313,13 @@ class _RecordingClient implements HttpClient {
   String? multipartFileName;
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> get(String path, {Map<String, String>? headers}) async {
     _recordHeaders(headers);
     return _response(getResponses, path);
