@@ -7,6 +7,7 @@ import 'package:esketit_music_console/ui/catalog_submission/author_information_c
 import 'package:esketit_music_console/ui/catalog_submission/external_links_information_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_submission_summary.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
+import 'package:esketit_music_console/ui/catalog_submission/source_metadata_link.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_history_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
@@ -709,9 +710,9 @@ class _AdditionalInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final items = parseTrackInfos(additionalInfo)
-        .whereType<TextTrackInfo>()
-        .toList();
+    final items = parseTrackInfos(
+      additionalInfo,
+    ).whereType<TextTrackInfo>().toList();
 
     return Container(
       key: const ValueKey('additional-info-card'),
@@ -950,7 +951,11 @@ class _SourceMetadataCard extends StatelessWidget {
                           'Identity',
                           jsonEncode(item.normalizedIdentity),
                         ),
-                        _SourceMetadataField('URL', item.normalizedUrl ?? '—'),
+                        _SourceMetadataField(
+                          'URL',
+                          item.normalizedUrl ?? '—',
+                          child: SourceMetadataLink(url: item.normalizedUrl),
+                        ),
                       ],
                     ],
                   );
@@ -991,7 +996,9 @@ class _SourceMetadataCard extends StatelessWidget {
                                 jsonEncode(item.normalizedIdentity),
                               ),
                             ),
-                            DataCell(SelectableText(item.normalizedUrl ?? '—')),
+                            DataCell(
+                              SourceMetadataLink(url: item.normalizedUrl),
+                            ),
                           ],
                         ),
                     ],
@@ -1006,10 +1013,11 @@ class _SourceMetadataCard extends StatelessWidget {
 }
 
 class _SourceMetadataField extends StatelessWidget {
-  const _SourceMetadataField(this.label, this.value);
+  const _SourceMetadataField(this.label, this.value, {this.child});
 
   final String label;
   final String value;
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1018,7 +1026,7 @@ class _SourceMetadataField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: Theme.of(context).textTheme.labelMedium),
-        SelectableText(value),
+        child ?? SelectableText(value),
       ],
     ),
   );
