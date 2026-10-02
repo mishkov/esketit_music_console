@@ -173,6 +173,121 @@ void main() {
       expect(repository.queueLoads, 3);
     },
   );
+
+  for (final action in CatalogReviewAction.values) {
+    test(
+      '$action conflict preserves a valid review and the server error',
+      () async {
+        const message =
+            'catalog submission has unresolved dependencies: review album and authors first';
+        final repository = _FakeRepository()
+          ..decisionError = const HttpAppError(
+            message: 'Request failed',
+            path: '/decision',
+            statusCode: 409,
+            responseBody: '$message\n',
+          );
+        final tokens = _MemoryTokens();
+        final controller = CatalogReviewController(
+          repository: repository,
+          reviewerId: 8,
+          tokenStore: tokens,
+        );
+        addTearDown(controller.dispose);
+        await controller.startReview(repository.requester);
+
+        await controller.decide(
+          submission: repository.submission,
+          action: action,
+          message: 'Fix metadata',
+        );
+
+        expect(controller.hasActiveReview, isTrue);
+        expect(controller.activeRequester?.userId, 7);
+        expect(
+          controller.submissions.single.status,
+          CatalogSubmissionStatus.pendingReview,
+        );
+        expect(controller.leaseToken, 'secret');
+        expect(tokens.value, 'secret');
+        expect(controller.errorMessage, message);
+        expect(controller.isMutating, isFalse);
+        expect(controller.notice, isNull);
+        expect(repository.submissionLoads, 2);
+        expect(repository.queueLoads, 1);
+
+        repository.decisionError = null;
+        await controller.decide(
+          submission: repository.submission,
+          action: action,
+          message: 'Fix metadata',
+        );
+        expect(controller.errorMessage, isNull);
+        expect(controller.hasActiveReview, isTrue);
+        expect(repository.submissionLoads, 3);
+      },
+    );
+  }
+
+  test(
+    'decision conflict with a lost lease clears review but preserves error',
+    () async {
+      final repository = _FakeRepository()
+        ..decisionError = const HttpAppError(
+          message: 'review lease expired',
+          path: '/approve',
+          statusCode: 409,
+        );
+      final tokens = _MemoryTokens();
+      final controller = CatalogReviewController(
+        repository: repository,
+        reviewerId: 8,
+        tokenStore: tokens,
+      );
+      addTearDown(controller.dispose);
+      await controller.startReview(repository.requester);
+      repository.submissionsError = repository.decisionError;
+
+      await controller.decide(
+        submission: repository.submission,
+        action: CatalogReviewAction.approve,
+      );
+
+      expect(controller.hasActiveReview, isFalse);
+      expect(tokens.value, isNull);
+      expect(controller.submissions, isEmpty);
+      expect(controller.errorMessage, 'review lease expired');
+      expect(controller.notice, contains('lease was lost'));
+      expect(controller.isMutating, isFalse);
+      expect(repository.queueLoads, 1);
+    },
+  );
+
+  test('failed conflict refresh retains the original decision error', () async {
+    final repository = _FakeRepository()
+      ..decisionError = const HttpAppError(
+        message: 'unresolved dependencies',
+        path: '/approve',
+        statusCode: 409,
+      );
+    final controller = CatalogReviewController(
+      repository: repository,
+      reviewerId: 8,
+      tokenStore: _MemoryTokens(),
+    );
+    addTearDown(controller.dispose);
+    await controller.startReview(repository.requester);
+    repository.submissionsError = StateError('refresh failed');
+
+    await controller.decide(
+      submission: repository.submission,
+      action: CatalogReviewAction.approve,
+    );
+
+    expect(controller.hasActiveReview, isTrue);
+    expect(controller.errorMessage, 'unresolved dependencies');
+    expect(controller.isMutating, isFalse);
+  });
 }
 
 class _FakeRepository extends Fake implements CatalogSubmissionRepository {
@@ -194,6 +309,8 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
   int requestChangesCalls = 0;
   int rejectCalls = 0;
   CatalogReviewDecision? lastDecision;
+  Object? decisionError;
+  Object? submissionsError;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
     userId: 7,
@@ -280,12 +397,14 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
     String leaseToken,
   ) async {
     submissionLoads += 1;
+    if (submissionsError != null) throw submissionsError!;
     return [submission];
   }
 
   @override
   Future<CatalogSubmission> approve(int submissionId, String leaseToken) async {
     approveCalls += 1;
+    if (decisionError != null) throw decisionError!;
     return submission;
   }
 
@@ -296,6 +415,7 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
     CatalogReviewDecision decision,
   ) async {
     requestChangesCalls += 1;
+    if (decisionError != null) throw decisionError!;
     lastDecision = decision;
     return submission;
   }
@@ -307,6 +427,7 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
     CatalogReviewDecision decision,
   ) async {
     rejectCalls += 1;
+    if (decisionError != null) throw decisionError!;
     lastDecision = decision;
     return submission;
   }

@@ -8,8 +8,8 @@ import 'package:esketit_music_console/ui/catalog_submission/external_links_infor
 import 'package:esketit_music_console/ui/catalog_submission/album_submission_summary.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/source_metadata_link.dart';
+import 'package:esketit_music_console/ui/catalog_submission/submission_history_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_raw_json.dart';
-import 'package:esketit_music_console/ui/catalog_submission/submission_status_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/ui/catalog_submission/track_information_card.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_review_controller.dart';
@@ -47,6 +47,8 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
   String? _lastReportedSubmissionName;
   bool? _lastReportedReviewIsActive;
   bool? _lastReportedReviewIsMutating;
+  String? _lastReportedErrorMessage;
+  bool _isErrorDialogOpen = false;
 
   @override
   void didChangeDependencies() {
@@ -56,7 +58,9 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
       repository: context.read<CatalogSubmissionRepository>(),
       reviewerId: widget.reviewerId,
       tokenStore: BrowserReviewLeaseTokenStore(),
-    )..loadQueue();
+    );
+    _controller!.addListener(_onControllerChanged);
+    _controller!.loadQueue();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -70,6 +74,7 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -84,6 +89,7 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
       animation: controller,
       builder: (context, _) {
         _reportReviewAction(controller);
+        _reportError(controller);
         if (controller.hasActiveReview) {
           return _ActiveReview(
             controller: controller,
@@ -95,6 +101,45 @@ class _ReviewQueueScreenState extends State<ReviewQueueScreen>
         return _RequesterQueue(controller: controller);
       },
     );
+  }
+
+  void _onControllerChanged() {
+    // A fast retry can clear and set the same error between rendered frames.
+    // Observe the reset directly so each failed attempt gets its own dialog.
+    if (_controller?.errorMessage == null) _lastReportedErrorMessage = null;
+  }
+
+  void _reportError(CatalogReviewController controller) {
+    final message = controller.errorMessage;
+    if (message == null) {
+      _lastReportedErrorMessage = null;
+      return;
+    }
+    if (controller.isMutating ||
+        _isErrorDialogOpen ||
+        _lastReportedErrorMessage == message) {
+      return;
+    }
+    _lastReportedErrorMessage = message;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || controller.errorMessage != message) return;
+      _isErrorDialogOpen = true;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Review failed'),
+          content: SelectableText(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _isErrorDialogOpen = false);
+    });
   }
 
   void _reportSelectedSubmission(String? name) {
@@ -411,11 +456,11 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType != CatalogSubmissionEntityType.album) ...[
+              if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 _ReviewSubmissionCard(submission: current),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType == CatalogSubmissionEntityType.album) ...[
+              if (current.entityType != CatalogSubmissionEntityType.track) ...[
                 Card(
                   key: ValueKey('raw-json-card-${current.id}'),
                   child: Padding(
@@ -423,6 +468,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                     child: SubmissionRawJson(submission: current),
                   ),
                 ),
+                const SizedBox(height: 12),
+              ],
+              if (current.entityType == CatalogSubmissionEntityType.author) ...[
+                SubmissionHistoryCard(submission: current),
                 const SizedBox(height: 12),
               ],
             ],
@@ -643,23 +692,6 @@ class _ReviewSubmissionCard extends StatelessWidget {
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (submission.entityType !=
-                      CatalogSubmissionEntityType.track) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.person),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            submission.entityName,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SubmissionStatusBadge(status: submission.status),
-                    const SizedBox(height: 16),
-                  ],
                   SubmissionRawJson(submission: submission),
                   ...details,
                 ],

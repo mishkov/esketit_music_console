@@ -1,4 +1,5 @@
 import 'package:esketit_music_console/domain/catalog_submission.dart';
+import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/ui/catalog_submission/review_queue_screen.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
@@ -79,6 +80,136 @@ void main() {
       expect(launches.single.arguments['useSafariVC'], isFalse);
       expect(tester.takeException(), isNull);
     });
+  }
+
+  testWidgets(
+    'shows dependency conflict after author feedback and keeps the album open',
+    (tester) async {
+      const message =
+          'catalog submission has unresolved dependencies: review album and authors first';
+      final repository = _DependencyConflictRepository()
+        ..approveError = const HttpAppError(
+          message: 'Request failed',
+          path: '/catalog-reviews/submissions/11/approve',
+          statusCode: 409,
+          responseBody: '$message\n',
+        );
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<CatalogSubmissionRepository>.value(
+              value: repository,
+            ),
+            RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-review-7')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('request-changes-12')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('review-feedback-message')),
+        'Fix the author',
+      );
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Request changes').last,
+      );
+      await tester.pumpAndSettle();
+      expect(repository.requestChangesCalls, 1);
+      expect(find.byKey(const ValueKey('approve-11')), findsOneWidget);
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.byKey(const ValueKey('approve-11')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.text('Review failed'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text(message),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('start-review-7')), findsNothing);
+        expect(find.text('Submission #11'), findsOneWidget);
+
+        await tester.tap(find.widgetWithText(TextButton, 'OK'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(const ValueKey('approve-11')))
+              .onPressed,
+          isNotNull,
+        );
+      }
+      expect(repository.approveCalls, 2);
+
+      repository.approveError = null;
+      await tester.tap(find.byKey(const ValueKey('approve-11')));
+      await tester.pumpAndSettle();
+      expect(repository.approveCalls, 3);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text(message), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final statusCode in [409, 500]) {
+    testWidgets(
+      'shows decision error $statusCode even when the lease is lost',
+      (tester) async {
+        final repository =
+            _FakeReviewRepository(entityType: CatalogSubmissionEntityType.album)
+              ..approveError = HttpAppError(
+                message: 'Request failed',
+                path: '/approve',
+                statusCode: statusCode,
+                responseBody: 'Server review error',
+              )
+              ..loseLeaseAfterApproval = statusCode == 409;
+        await tester.pumpWidget(
+          RepositoryProvider<CatalogSubmissionRepository>.value(
+            value: repository,
+            child: const MaterialApp(
+              home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('start-review-7')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('approve-10')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Server review error'),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.widgetWithText(TextButton, 'OK'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          find.byKey(const ValueKey('start-review-7')),
+          statusCode == 409 ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('approve-10')),
+          statusCode == 409 ? findsNothing : findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final entityType in CatalogSubmissionEntityType.values) {
@@ -206,6 +337,119 @@ void main() {
       );
     },
   );
+
+  for (final status in [
+    CatalogSubmissionStatus.pendingReview,
+    CatalogSubmissionStatus.changesRequested,
+  ]) {
+    testWidgets('separates author JSON and history for ${status.label}', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1200, 1400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final isPending = status == CatalogSubmissionStatus.pendingReview;
+      final feedback = isPending
+          ? <CatalogSubmissionFeedback>[]
+          : [
+              CatalogSubmissionFeedback(
+                id: 1,
+                submissionId: 12,
+                kind: CatalogSubmissionStatus.changesRequested,
+                message: 'Use another photo',
+                ratingPenalty: 1,
+                createdAt: DateTime(2026, 10, 1, 23, 50),
+              ),
+            ];
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<CatalogSubmissionRepository>.value(
+              value: _FakeAuthorReviewRepository(
+                status: status,
+                feedback: feedback,
+              ),
+            ),
+            RepositoryProvider<TracksStorage>.value(value: _FakePhotoStorage()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('start-review-7')));
+      await tester.pumpAndSettle();
+
+      final rawJson = find.byKey(const ValueKey('raw-json-card-12'));
+      final history = find.byKey(const ValueKey('history-card-12'));
+      expect(rawJson, findsOneWidget);
+      expect(history, findsOneWidget);
+      expect(find.byKey(const ValueKey('review-submission-12')), findsNothing);
+      expect(find.text('The Full Author Name'), findsOneWidget);
+      expect(
+        find.descendant(of: rawJson, matching: find.text('Raw JSON')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: history, matching: find.text('History')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getBottomLeft(rawJson).dy,
+        lessThan(tester.getTopLeft(history).dy),
+      );
+      expect(
+        find.descendant(of: history, matching: find.byType(ExpansionTile)),
+        findsNothing,
+      );
+      if (isPending) {
+        expect(find.text('No feedback history.'), findsOneWidget);
+        expect(find.byKey(const ValueKey('approve-12')), findsOneWidget);
+      } else {
+        expect(
+          find.descendant(
+            of: history,
+            matching: find.text('Use another photo'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Changes requested · penalty 1 · 2026-10-01 23:50'),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            'Context only — only pending submissions can receive a decision.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('review-decision-bar')), findsNothing);
+      }
+
+      expect(find.textContaining('"currentName"'), findsNothing);
+      await tester.tap(find.text('Raw JSON'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: rawJson,
+          matching: find.textContaining('"currentName"'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: history,
+          matching: find.textContaining('"currentName"'),
+        ),
+        findsNothing,
+      );
+      await tester.tap(find.text('Raw JSON'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('"currentName"'), findsNothing);
+    });
+  }
 
   testWidgets('wraps source metadata within the card at desktop width', (
     tester,
@@ -744,6 +988,9 @@ class _FakeReviewRepository extends Fake
   final CatalogSubmissionEntityType entityType;
   final bool includeAuthorSubmission;
   int requestChangesCalls = 0;
+  int approveCalls = 0;
+  HttpAppError? approveError;
+  bool loseLeaseAfterApproval = false;
 
   CatalogReviewRequester get requester => CatalogReviewRequester(
     userId: 7,
@@ -812,27 +1059,43 @@ class _FakeReviewRepository extends Fake
   Future<List<CatalogSubmission>> getReviewSubmissions(
     int requesterId,
     String leaseToken,
-  ) async => [
-    submission,
-    if (includeSecondSubmission)
-      CatalogSubmission(
-        id: 11,
-        entityType: CatalogSubmissionEntityType.album,
-        entityId: 43,
-        requesterUserId: 7,
-        status: CatalogSubmissionStatus.pendingReview,
-        snapshot: const {'title': 'Second album'},
-        entity: const {
-          'title': 'Second album',
-          'releaseDate': '2026-09-27T00:00:00Z',
-        },
-        feedback: const [],
-        createdAt: DateTime.utc(2026, 9, 26),
-        submittedAt: DateTime.utc(2026, 9, 26),
-        updatedAt: DateTime.utc(2026, 9, 26),
-      ),
-    if (includeAuthorSubmission) _FakeAuthorReviewRepository().submission,
-  ];
+  ) async {
+    if (loseLeaseAfterApproval && approveCalls > 0) {
+      throw const HttpAppError(
+        message: 'review lease expired',
+        path: '/submissions',
+        statusCode: 409,
+      );
+    }
+    return [
+      submission,
+      if (includeSecondSubmission)
+        CatalogSubmission(
+          id: 11,
+          entityType: CatalogSubmissionEntityType.album,
+          entityId: 43,
+          requesterUserId: 7,
+          status: CatalogSubmissionStatus.pendingReview,
+          snapshot: const {'title': 'Second album'},
+          entity: const {
+            'title': 'Second album',
+            'releaseDate': '2026-09-27T00:00:00Z',
+          },
+          feedback: const [],
+          createdAt: DateTime.utc(2026, 9, 26),
+          submittedAt: DateTime.utc(2026, 9, 26),
+          updatedAt: DateTime.utc(2026, 9, 26),
+        ),
+      if (includeAuthorSubmission) _FakeAuthorReviewRepository().submission,
+    ];
+  }
+
+  @override
+  Future<CatalogSubmission> approve(int submissionId, String leaseToken) async {
+    approveCalls += 1;
+    if (approveError != null) throw approveError!;
+    return submission;
+  }
 
   @override
   Future<CatalogSubmission> requestChanges(
@@ -848,20 +1111,47 @@ class _FakeReviewRepository extends Fake
   Future<void> releaseLease(int requesterId, String leaseToken) async {}
 }
 
+class _DependencyConflictRepository extends _FakeReviewRepository {
+  _DependencyConflictRepository()
+    : super(includeSecondSubmission: true, includeAuthorSubmission: true);
+
+  @override
+  Future<List<CatalogSubmission>> getReviewSubmissions(
+    int requesterId,
+    String leaseToken,
+  ) async {
+    final submissions = await super.getReviewSubmissions(
+      requesterId,
+      leaseToken,
+    );
+    return submissions
+        .where((submission) => submission.id != 12 || requestChangesCalls == 0)
+        .toList();
+  }
+}
+
 class _FakeAuthorReviewRepository extends _FakeReviewRepository {
+  _FakeAuthorReviewRepository({
+    this.status = CatalogSubmissionStatus.pendingReview,
+    this.feedback = const [],
+  });
+
+  final CatalogSubmissionStatus status;
+  final List<CatalogSubmissionFeedback> feedback;
+
   @override
   CatalogSubmission get submission => CatalogSubmission(
     id: 12,
     entityType: CatalogSubmissionEntityType.author,
     entityId: 44,
     requesterUserId: 7,
-    status: CatalogSubmissionStatus.pendingReview,
+    status: status,
     snapshot: const {},
     entity: const {
       'currentName': 'The Full Author Name',
       'photos': ['first.jpg', 'second.jpg'],
     },
-    feedback: const [],
+    feedback: feedback,
     createdAt: DateTime.utc(2026, 9, 26),
     submittedAt: DateTime.utc(2026, 9, 26),
     updatedAt: DateTime.utc(2026, 9, 26),

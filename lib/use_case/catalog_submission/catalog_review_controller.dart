@@ -175,6 +175,9 @@ class CatalogReviewController extends ChangeNotifier {
         errorMessage = describeCatalogError(error);
         notifyListeners();
       }
+    } catch (error) {
+      errorMessage = describeCatalogError(error);
+      notifyListeners();
     }
   }
 
@@ -232,10 +235,12 @@ class CatalogReviewController extends ChangeNotifier {
       await refreshActiveAndQueue();
     } on HttpAppError catch (error) {
       if (error.statusCode == 409) {
-        await _handleLeaseLoss();
-      } else {
-        errorMessage = describeCatalogError(error);
+        // Decision conflicts also include unresolved dependencies and changed
+        // submission state. A protected refresh checks whether the lease is
+        // still valid before leaving the active review.
+        await refreshActiveAndQueue();
       }
+      errorMessage = describeCatalogError(error);
     } catch (error) {
       errorMessage = describeCatalogError(error);
     } finally {
