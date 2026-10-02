@@ -1,5 +1,6 @@
 import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
 import 'package:esketit_music_console/esketit_rest_api/track/track_metadata_codec.dart';
+import 'package:esketit_music_console/ui/catalog_submission/source_metadata_link.dart';
 import 'package:flutter/material.dart';
 
 class ExternalLinksInformationCard extends StatelessWidget {
@@ -74,7 +75,7 @@ class ExternalLinksInformationCard extends StatelessWidget {
                       cells: [
                         DataCell(SelectableText(item.provider)),
                         DataCell(SelectableText(item.title ?? '—')),
-                        DataCell(SelectableText(item.url)),
+                        DataCell(SourceMetadataLink(url: item.url)),
                       ],
                     ),
                 ],
