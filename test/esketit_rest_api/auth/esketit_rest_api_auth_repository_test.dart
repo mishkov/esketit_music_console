@@ -144,6 +144,13 @@ class _AuthHttpClient implements HttpClient {
   final List<String> getPaths = [];
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> get(String path, {Map<String, String>? headers}) async {
     getPaths.add(path);
     return _response(getResponses, path);

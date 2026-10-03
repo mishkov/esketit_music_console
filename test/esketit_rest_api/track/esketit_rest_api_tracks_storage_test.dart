@@ -328,6 +328,13 @@ class _FakeHttpClient implements HttpClient {
   Object? lastPutBody;
 
   @override
+  Future<HttpResponse> patch(
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) => throw UnimplementedError('PATCH is not used in this fixture');
+
+  @override
   Future<HttpResponse> get(String path, {Map<String, String>? headers}) async {
     final response = _getResponses[path];
     if (response == null) {

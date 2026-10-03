@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/settings/mcp_settings_section.dart';
 import 'dart:typed_data';
 
 import 'package:esketit_music_console/esketit_rest_api/youtube/youtube_cookies_models.dart';
@@ -62,6 +63,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           false,
     );
 
+    final canManageMcp = context.select(
+      (AuthBloc bloc) =>
+          bloc.state.session?.user.hasPermission('access_control.manage') ??
+          false,
+    );
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -110,6 +117,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _SettingsCard(
                         title: 'YouTube Cookies',
                         child: _buildYouTubeCookiesSection(context),
+                      ),
+                    ],
+                    if (canManageMcp) ...[
+                      const SizedBox(height: 16),
+                      const _SettingsCard(
+                        title: 'AI Agent / MCP',
+                        child: McpSettingsSection(),
                       ),
                     ],
                     if (_enableSentryVerification) ...[
