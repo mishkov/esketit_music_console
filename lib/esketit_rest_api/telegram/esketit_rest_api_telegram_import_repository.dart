@@ -142,7 +142,7 @@ class EsketitRestApiTelegramImportRepository
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
     required List<TrackInfo> additionalInfo,
     required List<TrackSourceMetadata> sourceMetadata,
   }) async {
@@ -152,7 +152,7 @@ class EsketitRestApiTelegramImportRepository
         'name': name,
         'authorIds': authorIds,
         'albumId': albumId,
-        'albumOrder': albumOrder,
+        'trackNumber': trackNumber,
         'additionalInfo': serializeTrackInfos(additionalInfo),
         'sourceMetadata': serializeTrackSourceMetadata(sourceMetadata),
       },

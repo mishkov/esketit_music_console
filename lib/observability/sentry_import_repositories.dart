@@ -286,7 +286,7 @@ class SentryYouTubeImportRepository implements YouTubeImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
   }) {
     return _reporter.track(
       source: 'youtube',
@@ -295,13 +295,13 @@ class SentryYouTubeImportRepository implements YouTubeImportRepository {
         'name_length': name.length,
         'author_count': authorIds.length,
         'album_id': albumId,
-        'album_order': albumOrder,
+        'track_number': trackNumber,
       },
       run: () => _delegate.addCurrentAsNew(
         name: name,
         authorIds: authorIds,
         albumId: albumId,
-        albumOrder: albumOrder,
+        trackNumber: trackNumber,
       ),
     );
   }
@@ -422,7 +422,7 @@ class SentryTelegramImportRepository implements TelegramImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
     required List<TrackInfo> additionalInfo,
     required List<TrackSourceMetadata> sourceMetadata,
   }) {
@@ -433,7 +433,7 @@ class SentryTelegramImportRepository implements TelegramImportRepository {
         'name_length': name.length,
         'author_count': authorIds.length,
         'album_id': albumId,
-        'album_order': albumOrder,
+        'track_number': trackNumber,
         'additional_info_count': additionalInfo.length,
         'source_metadata_count': sourceMetadata.length,
       },
@@ -441,7 +441,7 @@ class SentryTelegramImportRepository implements TelegramImportRepository {
         name: name,
         authorIds: authorIds,
         albumId: albumId,
-        albumOrder: albumOrder,
+        trackNumber: trackNumber,
         additionalInfo: additionalInfo,
         sourceMetadata: sourceMetadata,
       ),

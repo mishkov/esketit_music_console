@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
 
@@ -23,7 +24,6 @@ class AlbumSubmissionRequest {
     required this.authorIds,
     required this.releaseDate,
     required this.isPublished,
-    this.trackIds = const [],
     this.additionalInfo = const [],
   });
 
@@ -32,7 +32,6 @@ class AlbumSubmissionRequest {
   final List<int> authorIds;
   final DateTime releaseDate;
   final bool isPublished;
-  final List<int> trackIds;
   final List<Map<String, dynamic>> additionalInfo;
 
   Map<String, dynamic> toJson() => {
@@ -41,7 +40,6 @@ class AlbumSubmissionRequest {
     'authorIds': authorIds,
     'releaseDate': releaseDate.toUtc().toIso8601String(),
     'isPublished': isPublished,
-    'trackIds': trackIds,
     'additionalInfo': additionalInfo,
   };
 }
@@ -51,7 +49,7 @@ class TrackSubmissionRequest {
     required this.name,
     required this.authorIds,
     required this.albumId,
-    required this.albumOrder,
+    required this.trackNumber,
     this.audioUploadToken,
     this.additionalInfo = const [],
     this.sourceMetadata = const [],
@@ -60,7 +58,7 @@ class TrackSubmissionRequest {
   final String name;
   final List<int> authorIds;
   final int albumId;
-  final int albumOrder;
+  final int trackNumber;
   final String? audioUploadToken;
   final List<Map<String, dynamic>> additionalInfo;
   final List<Map<String, dynamic>> sourceMetadata;
@@ -69,7 +67,7 @@ class TrackSubmissionRequest {
     'name': name.trim(),
     'authorIds': authorIds,
     'albumId': albumId,
-    'albumOrder': albumOrder,
+    'trackNumber': trackNumber,
     if (audioUploadToken?.trim().isNotEmpty ?? false)
       'audioUploadToken': audioUploadToken!.trim(),
     'additionalInfo': additionalInfo,
@@ -78,6 +76,20 @@ class TrackSubmissionRequest {
 }
 
 abstract class CatalogSubmissionRepository {
+  Future<CatalogSubmission> submitAlbumTrackOrder({
+    required int albumId,
+    required List<TrackNumberAssignment> tracks,
+    required int expectedOrderRevision,
+    String reason = '',
+  });
+  Future<CatalogSubmission> updateAlbumTrackOrder({
+    required int submissionId,
+    required int expectedRevision,
+    required List<TrackNumberAssignment> tracks,
+    required int expectedOrderRevision,
+    String reason = '',
+  });
+
   Future<CatalogSubmissionList> getOwnSubmissions();
 
   Future<CatalogSubmission> submitAuthor(AuthorSubmissionRequest request);

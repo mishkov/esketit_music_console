@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -15,6 +16,58 @@ class EsketitRestApiCatalogSubmissionRepository
   }) : _httpClient = httpClient;
 
   final HttpClient _httpClient;
+
+  @override
+  Future<CatalogSubmission> submitAlbumTrackOrder({
+    required int albumId,
+    required List<TrackNumberAssignment> tracks,
+    required int expectedOrderRevision,
+    String reason = '',
+  }) => _submissionPost(
+    '/catalog-submissions/album-track-orders',
+    body: {
+      'albumId': albumId,
+      'tracks': tracks
+          .map(
+            (assignment) => {
+              'trackId': assignment.trackId,
+              'trackNumber': assignment.trackNumber,
+            },
+          )
+          .toList(),
+      'expectedOrderRevision': expectedOrderRevision,
+      'reason': reason,
+    },
+    statuses: const {201},
+  );
+  @override
+  Future<CatalogSubmission> updateAlbumTrackOrder({
+    required int submissionId,
+    required int expectedRevision,
+    required List<TrackNumberAssignment> tracks,
+    required int expectedOrderRevision,
+    String reason = '',
+  }) async {
+    final path = '/catalog-submissions/album-track-orders/$submissionId';
+    final response = await _httpClient.put(
+      path,
+      body: {
+        'expectedRevision': expectedRevision,
+        'tracks': tracks
+            .map(
+              (assignment) => {
+                'trackId': assignment.trackId,
+                'trackNumber': assignment.trackNumber,
+              },
+            )
+            .toList(),
+        'expectedOrderRevision': expectedOrderRevision,
+        'reason': reason,
+      },
+    );
+    _expect(response, path: path, statuses: const {200});
+    return CatalogSubmission.fromJson(_map(response.response, path));
+  }
 
   @override
   Future<CatalogSubmissionList> getOwnSubmissions() async {

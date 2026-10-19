@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'package:esketit_music_console/domain/access_control.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
@@ -139,7 +140,7 @@ void main() {
     expect(youtubeRepository.lastCreateName, 'Parsed Song Title');
     expect(youtubeRepository.lastCreateAuthorIds, [7]);
     expect(youtubeRepository.lastCreateAlbumId, 3);
-    expect(youtubeRepository.lastCreateAlbumOrder, 2);
+    expect(youtubeRepository.lastCreateTrackNumber, 1);
   });
 
   testWidgets('submits attach payload from an exact-match suggestion', (
@@ -360,7 +361,7 @@ Track _buildTrack({
         .map((entry) => Author(id: entry.key + 1, currentName: entry.value))
         .toList(),
     albumId: albumId,
-    albumOrder: 0,
+    trackNumber: 1,
     additionalInfo: const [],
     sourceMetadata: const [],
     file: StorageFile(
@@ -397,6 +398,13 @@ class _FakeAuthRepository implements AuthRepository {
 }
 
 class _FakeTracksStorage implements TracksStorage {
+  @override
+  Future<Album> setAlbumTrackNumbers(
+    int albumId,
+    List<TrackNumberAssignment> tracks,
+    int expectedOrderRevision,
+  ) async => getAlbum(albumId);
+
   _FakeTracksStorage({
     this.authors = const [],
     this.albums = const [],
@@ -458,6 +466,10 @@ class _FakeTracksStorage implements TracksStorage {
   }
 
   @override
+  Future<List<Track>> getAlbumTracks(int albumId) async =>
+      tracksById.values.where((track) => track.albumId == albumId).toList();
+
+  @override
   Future<Track> getTrack(int id) async {
     final track = tracksById[id];
     if (track == null) {
@@ -496,7 +508,7 @@ class _FakeYouTubeImportRepository implements YouTubeImportRepository {
   String? lastCreateName;
   List<int>? lastCreateAuthorIds;
   int? lastCreateAlbumId;
-  int? lastCreateAlbumOrder;
+  int? lastCreateTrackNumber;
   int? lastAttachTrackId;
   int skipCount = 0;
   int cancelCount = 0;
@@ -529,12 +541,12 @@ class _FakeYouTubeImportRepository implements YouTubeImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
   }) async {
     lastCreateName = name;
     lastCreateAuthorIds = authorIds;
     lastCreateAlbumId = albumId;
-    lastCreateAlbumOrder = albumOrder;
+    lastCreateTrackNumber = trackNumber;
     currentSession = addCurrentResponse?.session;
     return addCurrentResponse ?? _buildAddResponse();
   }

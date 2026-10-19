@@ -83,7 +83,7 @@ class EsketitRestApiYouTubeImportRepository implements YouTubeImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
   }) {
     return _addCurrent(
       body: {
@@ -91,7 +91,7 @@ class EsketitRestApiYouTubeImportRepository implements YouTubeImportRepository {
         'name': name.trim(),
         'authorIds': authorIds,
         'albumId': albumId,
-        'albumOrder': albumOrder,
+        'trackNumber': trackNumber,
       },
     );
   }

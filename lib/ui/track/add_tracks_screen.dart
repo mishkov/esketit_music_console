@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/track/track_number_field.dart';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -81,6 +82,7 @@ class _UploadSingleFileTab extends StatefulWidget {
 
 class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
   final _titleController = TextEditingController();
+  final _trackNumberController = TextEditingController();
   final List<TrackInfo> _additionalInfos = [];
   final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
@@ -102,6 +104,7 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
   @override
   void dispose() {
     _titleController.dispose();
+    _trackNumberController.dispose();
     super.dispose();
   }
 
@@ -153,11 +156,11 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
                   onCreateNew: _openCreateAlbumScreen,
                 ),
                 const SizedBox(height: 12),
-                _SelectionSummaryCard(
-                  title: 'Album position',
-                  value: _selectedAlbum == null
-                      ? 'Select an album'
-                      : 'Track will be added as item ${_selectedAlbum!.trackIds.length + 1}',
+                TrackNumberField(
+                  enabled: !_isSaving,
+                  controller: _trackNumberController,
+                  album: _selectedAlbum,
+                  itemKey: _pickedFile,
                 ),
                 const SizedBox(height: 16),
                 _AuthorPickerField(
@@ -487,7 +490,7 @@ class _UploadSingleFileTabState extends State<_UploadSingleFileTab> {
           name: _titleController.text.trim(),
           authors: List<Author>.from(_selectedAuthors),
           albumId: selectedAlbum!.id!,
-          albumOrder: selectedAlbum.trackIds.length,
+          trackNumber: requireTrackNumber(_trackNumberController),
           additionalInfo: List<TrackInfo>.from(_additionalInfos),
           sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: _pickedFile!,
@@ -640,6 +643,7 @@ class _ZipImportTab extends StatefulWidget {
 
 class _ZipImportTabState extends State<_ZipImportTab> {
   final _titleController = TextEditingController();
+  final _trackNumberController = TextEditingController();
   final List<TrackInfo> _additionalInfos = [];
   final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
@@ -665,6 +669,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
   @override
   void dispose() {
     _titleController.dispose();
+    _trackNumberController.dispose();
     super.dispose();
   }
 
@@ -672,8 +677,6 @@ class _ZipImportTabState extends State<_ZipImportTab> {
   Widget build(BuildContext context) {
     final session = _session;
     final currentEntry = session?.currentEntry;
-    final selectedAlbum = _selectedAlbum;
-
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -764,11 +767,11 @@ class _ZipImportTabState extends State<_ZipImportTab> {
                         onCreateNew: _openCreateAlbumScreen,
                       ),
                       const SizedBox(height: 12),
-                      _SelectionSummaryCard(
-                        title: 'Album position',
-                        value: selectedAlbum == null
-                            ? 'Select an album'
-                            : 'Track will be added as item ${selectedAlbum.trackIds.length + 1}',
+                      TrackNumberField(
+                        enabled: !_isSaving,
+                        controller: _trackNumberController,
+                        album: _selectedAlbum,
+                        itemKey: _session?.currentEntry,
                       ),
                       const SizedBox(height: 16),
                       _AuthorPickerField(
@@ -1247,7 +1250,7 @@ class _ZipImportTabState extends State<_ZipImportTab> {
           name: title,
           authors: List<Author>.from(_selectedAuthors),
           albumId: selectedAlbum!.id!,
-          albumOrder: selectedAlbum.trackIds.length,
+          trackNumber: requireTrackNumber(_trackNumberController),
           additionalInfo: List<TrackInfo>.from(_additionalInfos),
           sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: CrossFile(file: xFile),
@@ -1394,6 +1397,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
   final _channelUsernameController = TextEditingController();
   final _startMessageIdController = TextEditingController();
   final _titleController = TextEditingController();
+  final _trackNumberController = TextEditingController();
   final List<TrackInfo> _additionalInfos = [];
   final List<TrackSourceMetadata> _sourceMetadata = [];
   final List<Author> _selectedAuthors = [];
@@ -1426,6 +1430,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     _channelUsernameController.dispose();
     _startMessageIdController.dispose();
     _titleController.dispose();
+    _trackNumberController.dispose();
     super.dispose();
   }
 
@@ -1616,8 +1621,6 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
     TelegramImportSession session,
     TelegramImportTrack currentTrack,
   ) {
-    final selectedAlbum = _selectedAlbum;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1724,11 +1727,11 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
           onCreateNew: _openCreateAlbumScreen,
         ),
         const SizedBox(height: 12),
-        _SelectionSummaryCard(
-          title: 'Album position',
-          value: selectedAlbum == null
-              ? 'Select an album'
-              : 'Track will be added as item ${selectedAlbum.trackIds.length + 1}',
+        TrackNumberField(
+          enabled: !_isSaving,
+          controller: _trackNumberController,
+          album: _selectedAlbum,
+          itemKey: _loadedTrackMessageId,
         ),
         const SizedBox(height: 16),
         _AuthorPickerField(
@@ -2265,7 +2268,7 @@ class _TelegramImportTabState extends State<_TelegramImportTab> {
         name: title,
         authorIds: authorIds,
         albumId: selectedAlbum!.id!,
-        albumOrder: selectedAlbum.trackIds.length,
+        trackNumber: requireTrackNumber(_trackNumberController),
         additionalInfo: List<TrackInfo>.from(_additionalInfos),
         sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
       );
@@ -2613,6 +2616,7 @@ class _YouTubeImportTab extends StatefulWidget {
 class _YouTubeImportTabState extends State<_YouTubeImportTab> {
   final _urlController = TextEditingController();
   final _titleController = TextEditingController();
+  final _trackNumberController = TextEditingController();
   final List<Author> _selectedAuthors = [];
   final Map<int, Track> _suggestedTracksById = {};
   List<Author> _availableAuthors = const [];
@@ -2643,6 +2647,7 @@ class _YouTubeImportTabState extends State<_YouTubeImportTab> {
   void dispose() {
     _urlController.dispose();
     _titleController.dispose();
+    _trackNumberController.dispose();
     super.dispose();
   }
 
@@ -3035,11 +3040,11 @@ class _YouTubeImportTabState extends State<_YouTubeImportTab> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                _SelectionSummaryCard(
-                  title: 'Album position',
-                  value: selectedAlbum == null
-                      ? 'Select an album'
-                      : 'Track will be added as item ${selectedAlbum.trackIds.length + 1}',
+                TrackNumberField(
+                  enabled: !_isBusy,
+                  controller: _trackNumberController,
+                  album: _selectedAlbum,
+                  itemKey: _loadedItemKey,
                 ),
                 const SizedBox(height: 16),
                 _AuthorPickerField(
@@ -3719,7 +3724,7 @@ class _YouTubeImportTabState extends State<_YouTubeImportTab> {
         name: title,
         authorIds: authorIds,
         albumId: selectedAlbum!.id!,
-        albumOrder: selectedAlbum.trackIds.length,
+        trackNumber: requireTrackNumber(_trackNumberController),
       );
 
       await _loadAlbums();

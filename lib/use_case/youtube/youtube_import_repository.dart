@@ -15,7 +15,7 @@ abstract class YouTubeImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
   });
 
   Future<YouTubeImportAddResponse> attachCurrent({required int trackId});

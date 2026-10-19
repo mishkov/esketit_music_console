@@ -1,4 +1,5 @@
 import 'package:esketit_music_console/domain/author.dart';
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'package:esketit_music_console/domain/track.dart';
 import 'package:esketit_music_console/domain/track_info/external_link_track_info.dart';
 import 'package:esketit_music_console/domain/track_lyrics.dart';
@@ -11,6 +12,45 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('EsketitRestApiTracksStorage track metadata', () {
+    test('sends explicit gapped assignments with the order revision', () async {
+      final client = _FakeHttpClient(
+        putResponses: {
+          '/albums/12/track-order': const HttpResponse(
+            statusCode: 200,
+            response: {},
+          ),
+        },
+        getResponses: {
+          '/authors': const HttpResponse(statusCode: 200, response: []),
+          '/albums/12': const HttpResponse(
+            statusCode: 200,
+            response: {
+              'id': 12,
+              'title': 'Gaps',
+              'releaseDate': '2026-01-01T00:00:00Z',
+              'orderRevision': 7,
+              'trackIds': [2, 1],
+            },
+          ),
+        },
+      );
+      final storage = EsketitRestApiTracksStorage(
+        authenticatedHttpClient: client,
+        baseUri: Uri.parse('http://localhost:8080'),
+      );
+      final album = await storage.setAlbumTrackNumbers(12, const [
+        TrackNumberAssignment(trackId: 1, trackNumber: 10),
+        TrackNumberAssignment(trackId: 2, trackNumber: 3),
+      ], 6);
+      expect(client.lastPutBody, {
+        'tracks': [
+          {'trackId': 1, 'trackNumber': 10},
+          {'trackId': 2, 'trackNumber': 3},
+        ],
+        'expectedOrderRevision': 6,
+      });
+      expect(album.orderRevision, 7);
+    });
     test(
       'serializes create requests with external links and source metadata',
       () async {
@@ -37,7 +77,7 @@ void main() {
             name: 'Track title',
             authors: const [Author(id: 7, currentName: 'Author')],
             albumId: 12,
-            albumOrder: 3,
+            trackNumber: 3,
             additionalInfo: const [
               ExternalLinkTrackInfo(
                 provider: 'spotify',
@@ -66,7 +106,7 @@ void main() {
           'name': 'Track title',
           'authorIds': [7],
           'albumId': 12,
-          'albumOrder': 3,
+          'trackNumber': 3,
           'audioFilePath': '/songs/song.mp3',
           'additionalInfo': [
             {

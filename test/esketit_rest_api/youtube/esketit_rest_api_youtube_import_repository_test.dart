@@ -92,7 +92,7 @@ void main() {
       name: 'Imported track',
       authorIds: const [7],
       albumId: 3,
-      albumOrder: 5,
+      trackNumber: 5,
     );
 
     expect(httpClient.lastPostBody, {
@@ -100,7 +100,7 @@ void main() {
       'name': 'Imported track',
       'authorIds': [7],
       'albumId': 3,
-      'albumOrder': 5,
+      'trackNumber': 5,
     });
     expect(response.track.id, 42);
     expect(

@@ -131,6 +131,12 @@ class _TrackInformationCardState extends State<TrackInformationCard> {
       _nonEmpty(albumData?['releaseDate']) ?? '',
     );
     final details = <_TrackDetail>[
+      _TrackDetail(
+        Icons.format_list_numbered,
+        'Track number',
+        widget.submission.retainedEntity['trackNumber']?.toString() ??
+            'Unknown',
+      ),
       if (authors.isNotEmpty)
         _TrackDetail(
           Icons.person_outline,

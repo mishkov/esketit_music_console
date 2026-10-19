@@ -37,7 +37,7 @@ void main() {
       name: 'Track title',
       authorIds: const [1, 2],
       albumId: 3,
-      albumOrder: 4,
+      trackNumber: 4,
       additionalInfo: const [
         ExternalLinkTrackInfo(
           provider: 'telegram',
@@ -60,7 +60,7 @@ void main() {
       'name': 'Track title',
       'authorIds': [1, 2],
       'albumId': 3,
-      'albumOrder': 4,
+      'trackNumber': 4,
       'additionalInfo': [
         {
           'type': 'external_link',

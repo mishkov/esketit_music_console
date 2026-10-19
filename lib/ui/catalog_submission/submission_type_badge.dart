@@ -13,6 +13,7 @@ class SubmissionTypeBadge extends StatelessWidget {
       CatalogSubmissionEntityType.author => Icons.person_outline,
       CatalogSubmissionEntityType.album => Icons.album_outlined,
       CatalogSubmissionEntityType.track => Icons.music_note_outlined,
+      CatalogSubmissionEntityType.albumTrackOrder => Icons.format_list_numbered,
     };
 
     return Semantics(
