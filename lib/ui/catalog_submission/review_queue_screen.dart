@@ -430,8 +430,10 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 const SizedBox(height: 12),
               ],
               if (current.entityType ==
-                  CatalogSubmissionEntityType.albumTrackOrder)
+                  CatalogSubmissionEntityType.albumTrackOrder) ...[
                 AlbumTrackOrderCard(submission: current),
+                const SizedBox(height: 12),
+              ],
               if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 TrackInformationCard(
                   submission: current,
@@ -547,7 +549,9 @@ class _ReviewNavigationHeader extends StatelessWidget {
           ],
         ),
         Text(
-          submission?.status == CatalogSubmissionStatus.pendingReview
+          submission?.isAlbumTrackOrderOutdated == true
+              ? 'Outdated'
+              : submission?.status == CatalogSubmissionStatus.pendingReview
               ? 'In review'
               : submission?.status.label ?? 'Waiting for submissions',
           style: theme.textTheme.bodySmall?.copyWith(
@@ -794,17 +798,18 @@ class _ReviewDecisionBar extends StatelessWidget {
               icon: const Icon(Icons.edit_note),
               label: const Text('Request changes'),
             ),
-            FilledButton.icon(
-              key: ValueKey('approve-${submission.id}'),
-              onPressed: controller.isMutating
-                  ? null
-                  : () => controller.decide(
-                      submission: submission,
-                      action: CatalogReviewAction.approve,
-                    ),
-              icon: const Icon(Icons.check),
-              label: const Text('Approve'),
-            ),
+            if (!submission.isAlbumTrackOrderOutdated)
+              FilledButton.icon(
+                key: ValueKey('approve-${submission.id}'),
+                onPressed: controller.isMutating
+                    ? null
+                    : () => controller.decide(
+                        submission: submission,
+                        action: CatalogReviewAction.approve,
+                      ),
+                icon: const Icon(Icons.check),
+                label: const Text('Approve'),
+              ),
             FilledButton.icon(
               key: ValueKey('reject-${submission.id}'),
               style: FilledButton.styleFrom(

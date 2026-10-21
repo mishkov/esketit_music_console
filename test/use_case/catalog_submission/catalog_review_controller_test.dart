@@ -8,6 +8,34 @@ import 'package:esketit_music_console/use_case/catalog_submission/review_lease_t
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('outdated album orders allow feedback but never approval', () async {
+    final repository = _OutdatedOrderRepository();
+    final controller = CatalogReviewController(
+      repository: repository,
+      reviewerId: 8,
+      tokenStore: _MemoryTokens(),
+    );
+    addTearDown(controller.dispose);
+    await controller.startReview(repository.requester);
+    await controller.decide(
+      submission: repository.submission,
+      action: CatalogReviewAction.approve,
+    );
+    expect(repository.approveCalls, 0);
+    expect(controller.errorMessage, contains('outdated'));
+    for (final action in [
+      CatalogReviewAction.requestChanges,
+      CatalogReviewAction.reject,
+    ]) {
+      await controller.decide(
+        submission: repository.submission,
+        action: action,
+        message: 'Refresh the order',
+      );
+    }
+    expect(repository.requestChangesCalls, 1);
+    expect(repository.rejectCalls, 1);
+  });
   test(
     'acquires, stores, heartbeats, restores, and releases a lease',
     () async {
@@ -458,4 +486,19 @@ class _MemoryTokens implements ReviewLeaseTokenStore {
   }) {
     value = token;
   }
+}
+
+class _OutdatedOrderRepository extends _FakeRepository {
+  @override
+  CatalogSubmission get submission => CatalogSubmission.fromJson({
+    'id': 10,
+    'entityId': 42,
+    'entityType': 'album_track_order',
+    'requesterUserId': 7,
+    'status': 'pending_review',
+    'entity': {'albumId': 42, 'outdated': true},
+    'createdAt': '2026-10-21T12:00:00Z',
+    'submittedAt': '2026-10-21T12:00:00Z',
+    'updatedAt': '2026-10-21T12:00:00Z',
+  });
 }

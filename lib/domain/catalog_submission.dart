@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
+import 'package:esketit_music_console/domain/album_track_order_proposal.dart';
 
 const authorsSubmitPermission = 'authors.submit';
 const albumsSubmitPermission = 'albums.submit';
@@ -150,13 +151,18 @@ class CatalogSubmission extends Equatable {
     CatalogSubmissionEntityType.album =>
       (entity['title'] ?? snapshot['title'] ?? 'Album #$entityId').toString(),
     CatalogSubmissionEntityType.albumTrackOrder =>
-      'Track numbers for album #$entityId',
+      'Track order for ${AlbumTrackOrderProposal.fromJson(retainedEntity).albumTitle}',
     CatalogSubmissionEntityType.track =>
       (entity['name'] ?? snapshot['name'] ?? 'Track #$entityId').toString(),
   };
 
   Map<String, dynamic> get retainedEntity =>
       entity.isNotEmpty ? entity : snapshot;
+
+  bool get isAlbumTrackOrderOutdated =>
+      entityType == CatalogSubmissionEntityType.albumTrackOrder &&
+      canBeCancelled &&
+      AlbumTrackOrderProposal.fromJson(retainedEntity).isOutdated;
 
   CatalogSubmissionFeedback? get latestFeedback =>
       feedback.isEmpty ? null : feedback.last;
