@@ -10,7 +10,7 @@ class Track extends Equatable {
   final String name;
   final List<Author> authors;
   final int albumId;
-  final int? albumOrder;
+  final int? trackNumber;
   final AbstractFile file;
 
   /// Any related info like history of track, who inspired, how it was written,
@@ -25,7 +25,7 @@ class Track extends Equatable {
     required this.name,
     required this.authors,
     required this.albumId,
-    this.albumOrder,
+    this.trackNumber,
     required this.additionalInfo,
     required this.sourceMetadata,
     required this.file,
@@ -41,7 +41,7 @@ class Track extends Equatable {
     name,
     authors,
     albumId,
-    albumOrder,
+    trackNumber,
     file,
     additionalInfo,
     sourceMetadata,

@@ -12,6 +12,7 @@ class Album extends Equatable {
     required this.releaseDate,
     required this.isPublished,
     required this.trackIds,
+    this.orderRevision = 1,
     required this.additionalInfo,
     this.publicationStatus = CatalogPublicationStatus.published,
     this.requestedByUserId,
@@ -24,6 +25,7 @@ class Album extends Equatable {
   final DateTime releaseDate;
   final bool isPublished;
   final List<int> trackIds;
+  final int orderRevision;
   final List<TrackInfo> additionalInfo;
   final CatalogPublicationStatus publicationStatus;
   final int? requestedByUserId;
@@ -37,6 +39,7 @@ class Album extends Equatable {
     releaseDate,
     isPublished,
     trackIds,
+    orderRevision,
     additionalInfo,
     publicationStatus,
     requestedByUserId,

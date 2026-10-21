@@ -107,7 +107,7 @@ void main() {
         name: 'Track',
         authorIds: [author.entityId],
         albumId: album.entityId,
-        albumOrder: 0,
+        trackNumber: 1,
         audioUploadToken: upload.token,
       ),
     );
@@ -117,8 +117,8 @@ void main() {
       'photos': <String>[],
     });
     expect(
-      (client.postBodies['/catalog-submissions/albums'] as Map)['trackIds'],
-      isEmpty,
+      (client.postBodies['/catalog-submissions/albums'] as Map).containsKey('trackIds'),
+      isFalse,
     );
     expect(client.multipartField, 'file');
     expect(client.multipartFileName, 'song.mp3');
@@ -126,7 +126,7 @@ void main() {
       'name': 'Track',
       'authorIds': [21],
       'albumId': 22,
-      'albumOrder': 0,
+      'trackNumber': 1,
       'audioUploadToken': 'stage-token',
       'additionalInfo': <Map<String, dynamic>>[],
       'sourceMetadata': <Map<String, dynamic>>[],

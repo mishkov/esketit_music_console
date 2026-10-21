@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/album.dart';
@@ -168,6 +169,31 @@ class EsketitRestApiTracksStorage implements TracksStorage {
       _decodeJsonMap(response.response, path: '/albums/$id'),
       await _getAuthorsById(),
     );
+  }
+
+  @override
+  Future<Album> setAlbumTrackNumbers(
+    int albumId,
+    List<TrackNumberAssignment> tracks,
+    int expectedOrderRevision,
+  ) async {
+    final path = '/albums/$albumId/track-order';
+    final response = await _authenticatedHttpClient.put(
+      path,
+      body: {
+        'tracks': tracks
+            .map(
+              (assignment) => {
+                'trackId': assignment.trackId,
+                'trackNumber': assignment.trackNumber,
+              },
+            )
+            .toList(),
+        'expectedOrderRevision': expectedOrderRevision,
+      },
+    );
+    _throwIfUnexpectedStatus(response, path: path);
+    return getAlbum(albumId);
   }
 
   @override
@@ -405,8 +431,8 @@ class EsketitRestApiTracksStorage implements TracksStorage {
 
   @override
   Future<void> putTrack(Track track) async {
-    if (track.albumOrder == null) {
-      throw const AppError('Album order is required for track creation');
+    if (track.trackNumber == null || track.trackNumber! < 1) {
+      throw const AppError('Track number is required for track creation');
     }
 
     final uploadedSong = await _uploadBinaryFile(
@@ -423,7 +449,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           'name': track.name,
           'authorIds': authorIds,
           'albumId': track.albumId,
-          'albumOrder': track.albumOrder,
+          'trackNumber': track.trackNumber,
           'audioFilePath': uploadedSong.name,
           'additionalInfo': serializeTrackInfos(track.additionalInfo),
           'sourceMetadata': serializeTrackSourceMetadata(track.sourceMetadata),
@@ -460,9 +486,9 @@ class EsketitRestApiTracksStorage implements TracksStorage {
     if (id == null) {
       throw const AppError('Track ID is required for update');
     }
-    final albumOrder = track.albumOrder;
-    if (albumOrder == null) {
-      throw const AppError('Album order is required for update');
+    final trackNumber = track.trackNumber;
+    if (trackNumber == null || trackNumber < 1) {
+      throw const AppError('Track number is required for update');
     }
 
     final existingTrack = await getTrack(id);
@@ -481,7 +507,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           'name': track.name,
           'authorIds': authorIds,
           'albumId': track.albumId,
-          'albumOrder': albumOrder,
+          'trackNumber': trackNumber,
           'audioFilePath': uploadedSong.name,
           'additionalInfo': serializeTrackInfos(track.additionalInfo),
           'sourceMetadata': serializeTrackSourceMetadata(track.sourceMetadata),
@@ -586,6 +612,7 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           DateTime.tryParse((json['releaseDate'] as String?) ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       isPublished: json['isPublished'] as bool? ?? false,
+      orderRevision: (json['orderRevision'] as num?)?.toInt() ?? 1,
       trackIds: (json['trackIds'] as List<dynamic>? ?? const [])
           .whereType<num>()
           .map((id) => id.toInt())
@@ -692,7 +719,6 @@ class EsketitRestApiTracksStorage implements TracksStorage {
           .toList(),
       'releaseDate': album.releaseDate.toUtc().toIso8601String(),
       'isPublished': album.isPublished,
-      'trackIds': album.trackIds,
       'additionalInfo': serializeTrackInfos(album.additionalInfo),
     };
   }

@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/track/track_number_field.dart';
 import 'dart:async';
 
 import 'package:cross_file/cross_file.dart';
@@ -38,6 +39,7 @@ class EditTrackScreen extends StatefulWidget {
 
 class _EditTrackScreenState extends State<EditTrackScreen> {
   final _titleController = TextEditingController();
+  final _trackNumberController = TextEditingController();
   final _lyricsLanguageCodeController = TextEditingController();
   final _lyricsSourceController = TextEditingController();
   final _lyricsPlainTextController = TextEditingController();
@@ -60,7 +62,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   String? _lyricsSearchError;
   int? _selectedAlbumId;
   Track? _track;
-  Album? _currentAlbum;
   CrossFile? _replacementFile;
   TrackLyricsType _lyricsType = TrackLyricsType.plain;
   List<LyricsSearchCandidate>? _lyricsSearchCandidates;
@@ -76,6 +77,7 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
   @override
   void dispose() {
     _titleController.dispose();
+    _trackNumberController.dispose();
     _lyricsLanguageCodeController.dispose();
     _lyricsSourceController.dispose();
     _lyricsPlainTextController.dispose();
@@ -134,9 +136,15 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
                       onCreateNew: _openCreateAlbumScreen,
                     ),
                     const SizedBox(height: 12),
-                    _SelectionSummaryCard(
-                      title: 'Album position',
-                      value: _buildAlbumPositionLabel(),
+                    TrackNumberField(
+                      enabled: !_isSaving,
+                      controller: _trackNumberController,
+                      album: _selectedAlbum,
+                      currentTrackId: _track?.id,
+                      initialNumber: _selectedAlbum?.id == _track?.albumId
+                          ? _track?.trackNumber
+                          : null,
+                      itemKey: _track?.id,
                     ),
                     const SizedBox(height: 16),
                     _AuthorPickerField(
@@ -322,12 +330,10 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       final track = await storage.getTrack(widget.trackId);
       final authorsFuture = storage.getAuthors();
       final albumsFuture = loadAllAlbums(storage);
-      final currentAlbumFuture = storage.getAlbum(track.albumId);
       final lyricsFuture = storage.getTrackLyrics(widget.trackId);
 
       final authors = await authorsFuture;
       final albums = await albumsFuture;
-      final currentAlbum = await currentAlbumFuture;
       final lyrics = await lyricsFuture;
 
       if (!mounted) {
@@ -346,7 +352,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
 
       setState(() {
         _track = track;
-        _currentAlbum = currentAlbum;
         _availableAuthors = authors;
         _availableAlbums = albums;
         _selectedAlbumId = track.albumId;
@@ -884,14 +889,14 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
 
     try {
       final storage = context.read<TracksStorage>();
-      final albumOrder = await _resolveAlbumOrder(selectedAlbum!);
+      final trackNumber = requireTrackNumber(_trackNumberController);
       final updatedTrack = await storage.updateTrack(
         Track(
           id: track.id,
           name: title,
           authors: List<Author>.from(_selectedAuthors),
-          albumId: selectedAlbum.id!,
-          albumOrder: albumOrder,
+          albumId: selectedAlbum!.id!,
+          trackNumber: trackNumber,
           additionalInfo: List<TrackInfo>.from(_additionalInfos),
           sourceMetadata: List<TrackSourceMetadata>.from(_sourceMetadata),
           file: _replacementFile ?? track.file,
@@ -923,26 +928,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
         _errorMessage = _describeError(error);
       });
     }
-  }
-
-  Future<int> _resolveAlbumOrder(Album selectedAlbum) async {
-    final track = _track;
-    if (track?.id == null) {
-      return 0;
-    }
-
-    if (selectedAlbum.id == _currentAlbum?.id) {
-      final currentTrackIds = _currentAlbum?.trackIds ?? const <int>[];
-      final currentIndex = currentTrackIds.indexOf(track!.id!);
-      if (currentIndex >= 0) {
-        return currentIndex;
-      }
-    }
-
-    final album = await context.read<TracksStorage>().getAlbum(
-      selectedAlbum.id!,
-    );
-    return album.trackIds.length;
   }
 
   Future<void> _deleteTrack() async {
@@ -1138,21 +1123,6 @@ class _EditTrackScreenState extends State<EditTrackScreen> {
       }
     }
     return null;
-  }
-
-  String _buildAlbumPositionLabel() {
-    final selectedAlbum = _selectedAlbum;
-    final track = _track;
-    if (selectedAlbum == null || track?.id == null) {
-      return 'Select an album';
-    }
-    if (selectedAlbum.id == _currentAlbum?.id) {
-      final currentIndex = _currentAlbum?.trackIds.indexOf(track!.id!);
-      if (currentIndex != null && currentIndex >= 0) {
-        return 'Current position: ${currentIndex + 1}';
-      }
-    }
-    return 'Track will be moved to position ${selectedAlbum.trackIds.length + 1}';
   }
 
   String _buildFileLabel() {

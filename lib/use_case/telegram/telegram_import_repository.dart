@@ -30,7 +30,7 @@ abstract class TelegramImportRepository {
     required String name,
     required List<int> authorIds,
     required int albumId,
-    required int albumOrder,
+    required int trackNumber,
     required List<TrackInfo> additionalInfo,
     required List<TrackSourceMetadata> sourceMetadata,
   });

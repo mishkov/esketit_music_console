@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
+import 'package:esketit_music_console/domain/album_track_order_proposal.dart';
 
 const authorsSubmitPermission = 'authors.submit';
 const albumsSubmitPermission = 'albums.submit';
@@ -45,7 +46,8 @@ enum CatalogSubmissionStatus {
 enum CatalogSubmissionEntityType {
   author('author', 'Author'),
   album('album', 'Album'),
-  track('track', 'Track');
+  track('track', 'Track'),
+  albumTrackOrder('album_track_order', 'Album track numbers');
 
   const CatalogSubmissionEntityType(this.code, this.label);
 
@@ -108,6 +110,7 @@ class CatalogSubmissionFeedback extends Equatable {
 class CatalogSubmission extends Equatable {
   const CatalogSubmission({
     required this.id,
+    this.revision = 1,
     required this.entityType,
     required this.entityId,
     required this.requesterUserId,
@@ -124,6 +127,7 @@ class CatalogSubmission extends Equatable {
 
   final int id;
   final CatalogSubmissionEntityType entityType;
+  final int revision;
   final int entityId;
   final int requesterUserId;
   final CatalogSubmissionStatus status;
@@ -146,12 +150,19 @@ class CatalogSubmission extends Equatable {
           .toString(),
     CatalogSubmissionEntityType.album =>
       (entity['title'] ?? snapshot['title'] ?? 'Album #$entityId').toString(),
+    CatalogSubmissionEntityType.albumTrackOrder =>
+      'Track order for ${AlbumTrackOrderProposal.fromJson(retainedEntity).albumTitle}',
     CatalogSubmissionEntityType.track =>
       (entity['name'] ?? snapshot['name'] ?? 'Track #$entityId').toString(),
   };
 
   Map<String, dynamic> get retainedEntity =>
       entity.isNotEmpty ? entity : snapshot;
+
+  bool get isAlbumTrackOrderOutdated =>
+      entityType == CatalogSubmissionEntityType.albumTrackOrder &&
+      canBeCancelled &&
+      AlbumTrackOrderProposal.fromJson(retainedEntity).isOutdated;
 
   CatalogSubmissionFeedback? get latestFeedback =>
       feedback.isEmpty ? null : feedback.last;
@@ -160,6 +171,7 @@ class CatalogSubmission extends Equatable {
     return CatalogSubmission(
       id: _requiredInt(json, 'id'),
       entityType: CatalogSubmissionEntityType.fromJson(json['entityType']),
+      revision: (json['revision'] as num?)?.toInt() ?? 1,
       entityId: _requiredInt(json, 'entityId'),
       requesterUserId: _requiredInt(json, 'requesterUserId'),
       status: CatalogSubmissionStatus.fromJson(json['status']),
@@ -180,6 +192,7 @@ class CatalogSubmission extends Equatable {
   List<Object?> get props => [
     id,
     entityType,
+    revision,
     entityId,
     requesterUserId,
     status,

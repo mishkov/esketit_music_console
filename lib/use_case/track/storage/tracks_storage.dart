@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
 import 'package:esketit_music_console/domain/album_cover_suggestion.dart';
 import 'package:esketit_music_console/domain/album.dart';
 import 'package:esketit_music_console/domain/author.dart';
@@ -51,6 +52,12 @@ abstract class TracksStorage {
   Future<Album> createAlbum(Album album);
 
   Future<Album> updateAlbum(Album album);
+
+  Future<Album> setAlbumTrackNumbers(
+    int albumId,
+    List<TrackNumberAssignment> tracks,
+    int expectedOrderRevision,
+  );
 
   Future<List<Track>> getAlbumTracks(int albumId);
 

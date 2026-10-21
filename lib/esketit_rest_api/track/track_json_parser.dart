@@ -25,6 +25,7 @@ Track parseTrackJson(
         )
         .toList(),
     albumId: (json['albumId'] as num?)?.toInt() ?? 0,
+    trackNumber: (json['trackNumber'] as num?)?.toInt(),
     additionalInfo: parseTrackInfos(json['additionalInfo']),
     sourceMetadata: parseTrackSourceMetadata(json['sourceMetadata']),
     file: StorageFile(

@@ -192,6 +192,13 @@ class CatalogReviewController extends ChangeNotifier {
         submission.status != CatalogSubmissionStatus.pendingReview) {
       return;
     }
+    if (action == CatalogReviewAction.approve &&
+        submission.isAlbumTrackOrderOutdated) {
+      errorMessage =
+          'This track order proposal is outdated. Request changes or reject it.';
+      notifyListeners();
+      return;
+    }
     if (action != CatalogReviewAction.approve && message.trim().isEmpty) {
       errorMessage = 'Feedback message is required.';
       notifyListeners();

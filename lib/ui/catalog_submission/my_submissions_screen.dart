@@ -1,3 +1,5 @@
+import 'package:esketit_music_console/ui/catalog_submission/album_track_order_dialog.dart';
+import 'package:esketit_music_console/ui/catalog_submission/album_track_order_card.dart';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/catalog_submission.dart';
@@ -157,7 +159,9 @@ class _MySubmissionsScreenState extends State<MySubmissionsScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => RepositoryProvider.value(
         value: context.read<CatalogSubmissionRepository>(),
-        child: _EditSubmissionDialog(submission: item),
+        child: item.entityType == CatalogSubmissionEntityType.albumTrackOrder
+            ? AlbumTrackOrderDialog(submission: item)
+            : _EditSubmissionDialog(submission: item),
       ),
     );
     if (saved == true && mounted) {
@@ -258,6 +262,8 @@ class _SubmissionCard extends StatelessWidget {
           CatalogSubmissionEntityType.author => Icons.person_outline,
           CatalogSubmissionEntityType.album => Icons.album_outlined,
           CatalogSubmissionEntityType.track => Icons.music_note_outlined,
+          CatalogSubmissionEntityType.albumTrackOrder =>
+            Icons.format_list_numbered,
         }),
         title: Text(submission.entityName),
         subtitle: Wrap(
@@ -307,6 +313,9 @@ class _SubmissionCard extends StatelessWidget {
               ),
             ),
           ],
+          if (submission.entityType ==
+              CatalogSubmissionEntityType.albumTrackOrder)
+            AlbumTrackOrderCard(submission: submission),
           const SizedBox(height: 12),
           _JsonDetails(
             title:
@@ -394,7 +403,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
   late final TextEditingController _cover;
   late final TextEditingController _authorIds;
   late final TextEditingController _albumId;
-  late final TextEditingController _albumOrder;
+  late final TextEditingController _trackNumber;
   late final TextEditingController _releaseDate;
   final _lyrics = TextEditingController();
   final _lyricsLanguage = TextEditingController(text: 'en');
@@ -416,6 +425,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
             CatalogSubmissionEntityType.author => data['currentName'],
             CatalogSubmissionEntityType.album => data['title'],
             CatalogSubmissionEntityType.track => data['name'],
+            CatalogSubmissionEntityType.albumTrackOrder => 'Track numbers',
           }?.toString() ??
           '',
     );
@@ -426,8 +436,8 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
       text: (data['authorIds'] as List<dynamic>? ?? const []).join(', '),
     );
     _albumId = TextEditingController(text: data['albumId']?.toString() ?? '');
-    _albumOrder = TextEditingController(
-      text: data['albumOrder']?.toString() ?? '0',
+    _trackNumber = TextEditingController(
+      text: data['trackNumber']?.toString() ?? '1',
     );
     _releaseDate = TextEditingController(
       text: data['releaseDate']?.toString().split('T').first ?? '',
@@ -441,7 +451,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
     _cover.dispose();
     _authorIds.dispose();
     _albumId.dispose();
-    _albumOrder.dispose();
+    _trackNumber.dispose();
     _releaseDate.dispose();
     _lyrics.dispose();
     _lyricsLanguage.dispose();
@@ -536,14 +546,14 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
-                    controller: _albumOrder,
+                    controller: _trackNumber,
                     enabled: !_isSaving,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'Album order',
+                      labelText: 'Track number',
                       border: OutlineInputBorder(),
                     ),
-                    validator: _nonNegativeInteger,
+                    validator: _positiveInteger,
                   ),
                   const SizedBox(height: 12),
                   Align(
@@ -656,6 +666,8 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
     final repository = context.read<CatalogSubmissionRepository>();
     try {
       switch (widget.submission.entityType) {
+        case CatalogSubmissionEntityType.albumTrackOrder:
+          throw StateError('Use the track-number proposal editor.');
         case CatalogSubmissionEntityType.author:
           await repository.updateAuthor(
             widget.submission.entityId,
@@ -676,10 +688,6 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
               authorIds: _parseIds(_authorIds.text),
               releaseDate: DateTime.parse(_releaseDate.text),
               isPublished: _isPublished,
-              trackIds: (data['trackIds'] as List<dynamic>? ?? const [])
-                  .whereType<num>()
-                  .map((id) => id.toInt())
-                  .toList(growable: false),
               additionalInfo: _mapList(data['additionalInfo']),
             ),
           );
@@ -691,7 +699,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
               name: _name.text,
               authorIds: _parseIds(_authorIds.text),
               albumId: int.parse(_albumId.text),
-              albumOrder: int.parse(_albumOrder.text),
+              trackNumber: int.parse(_trackNumber.text),
               audioUploadToken: _replacementAudioToken,
               additionalInfo: _mapList(data['additionalInfo']),
               sourceMetadata: _mapList(data['sourceMetadata']),
@@ -727,13 +735,6 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
     final parsed = int.tryParse(value ?? '');
     return parsed == null || parsed <= 0
         ? 'Enter an integer greater than zero.'
-        : null;
-  }
-
-  String? _nonNegativeInteger(String? value) {
-    final parsed = int.tryParse(value ?? '');
-    return parsed == null || parsed < 0
-        ? 'Enter zero or a positive integer.'
         : null;
   }
 }

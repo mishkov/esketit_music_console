@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/track/track_number_field.dart';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/album.dart';
@@ -31,7 +32,7 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
     text: DateTime.now().toIso8601String().split('T').first,
   );
   final _trackName = TextEditingController();
-  final _albumOrder = TextEditingController(text: '0');
+  final _trackNumber = TextEditingController(text: '1');
   final _lyrics = TextEditingController();
   final _lyricsLanguage = TextEditingController(text: 'en');
   final _lyricsSource = TextEditingController();
@@ -64,7 +65,7 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
       _albumCover,
       _albumReleaseDate,
       _trackName,
-      _albumOrder,
+      _trackNumber,
       _lyrics,
       _lyricsLanguage,
       _lyricsSource,
@@ -277,14 +278,12 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
                       : (value) => setState(() => _trackAlbumId = value),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: _albumOrder,
-                  enabled: !_isMutating,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Album order',
-                    border: OutlineInputBorder(),
-                  ),
+                TrackNumberField(
+                  controller: _trackNumber,
+                  album: _albums
+                      .where((album) => album.id == _trackAlbumId)
+                      .firstOrNull,
+                  itemKey: _createdSubmission?.id,
                 ),
                 const SizedBox(height: 12),
                 Wrap(
@@ -513,7 +512,6 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
               authorIds: _albumAuthorIds.toList(growable: false),
               releaseDate: releaseDate,
               isPublished: _isPublished,
-              trackIds: const [],
             ),
           );
       _albumTitle.clear();
@@ -539,7 +537,7 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
   }
 
   Future<void> _submitTrack() async {
-    final order = int.tryParse(_albumOrder.text);
+    final order = int.tryParse(_trackNumber.text);
     if (_trackName.text.trim().isEmpty) {
       return _showValidation('Track name is required.');
     }
@@ -547,8 +545,8 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
       return _showValidation('Select at least one track author.');
     }
     if (_trackAlbumId == null) return _showValidation('Select an album.');
-    if (order == null || order < 0) {
-      return _showValidation('Album order must be zero or greater.');
+    if (order == null || order < 1) {
+      return _showValidation('Track number must be positive.');
     }
     if (_audioUpload == null) {
       return _showValidation('Stage an audio file first.');
@@ -570,7 +568,7 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
           name: _trackName.text,
           authorIds: _trackAuthorIds.toList(growable: false),
           albumId: _trackAlbumId!,
-          albumOrder: order,
+          trackNumber: order,
           audioUploadToken: _audioUpload!.token,
           additionalInfo: additionalInfo,
           sourceMetadata: sourceMetadata,
@@ -594,7 +592,7 @@ class _SubmitMusicScreenState extends State<SubmitMusicScreen> {
       _trackName.clear();
       _trackAuthorIds.clear();
       _trackAlbumId = null;
-      _albumOrder.text = '0';
+      _trackNumber.text = '1';
       _audioUpload = null;
       _lyrics.clear();
       _lyricsSource.clear();

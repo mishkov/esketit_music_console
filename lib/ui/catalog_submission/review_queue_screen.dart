@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/catalog_submission/album_track_order_card.dart';
 import 'dart:convert';
 
 import 'package:esketit_music_console/domain/catalog_submission.dart';
@@ -331,6 +332,7 @@ class _ActiveReviewState extends State<_ActiveReview> {
           CatalogSubmissionEntityType.author => 0,
           CatalogSubmissionEntityType.album => 1,
           CatalogSubmissionEntityType.track => 2,
+          CatalogSubmissionEntityType.albumTrackOrder => 3,
         };
         final statusComparison =
             left.status == CatalogSubmissionStatus.pendingReview
@@ -425,6 +427,11 @@ class _ActiveReviewState extends State<_ActiveReview> {
                   key: ValueKey('author-information-${current.id}'),
                   submission: current,
                 ),
+                const SizedBox(height: 12),
+              ],
+              if (current.entityType ==
+                  CatalogSubmissionEntityType.albumTrackOrder) ...[
+                AlbumTrackOrderCard(submission: current),
                 const SizedBox(height: 12),
               ],
               if (current.entityType == CatalogSubmissionEntityType.track) ...[
@@ -542,7 +549,9 @@ class _ReviewNavigationHeader extends StatelessWidget {
           ],
         ),
         Text(
-          submission?.status == CatalogSubmissionStatus.pendingReview
+          submission?.isAlbumTrackOrderOutdated == true
+              ? 'Outdated'
+              : submission?.status == CatalogSubmissionStatus.pendingReview
               ? 'In review'
               : submission?.status.label ?? 'Waiting for submissions',
           style: theme.textTheme.bodySmall?.copyWith(
@@ -789,17 +798,18 @@ class _ReviewDecisionBar extends StatelessWidget {
               icon: const Icon(Icons.edit_note),
               label: const Text('Request changes'),
             ),
-            FilledButton.icon(
-              key: ValueKey('approve-${submission.id}'),
-              onPressed: controller.isMutating
-                  ? null
-                  : () => controller.decide(
-                      submission: submission,
-                      action: CatalogReviewAction.approve,
-                    ),
-              icon: const Icon(Icons.check),
-              label: const Text('Approve'),
-            ),
+            if (!submission.isAlbumTrackOrderOutdated)
+              FilledButton.icon(
+                key: ValueKey('approve-${submission.id}'),
+                onPressed: controller.isMutating
+                    ? null
+                    : () => controller.decide(
+                        submission: submission,
+                        action: CatalogReviewAction.approve,
+                      ),
+                icon: const Icon(Icons.check),
+                label: const Text('Approve'),
+              ),
             FilledButton.icon(
               key: ValueKey('reject-${submission.id}'),
               style: FilledButton.styleFrom(

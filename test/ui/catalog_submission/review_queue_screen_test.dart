@@ -1,6 +1,7 @@
 import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/errors/http_app_error.dart';
 import 'package:esketit_music_console/ui/catalog_submission/review_queue_screen.dart';
+import 'package:esketit_music_console/ui/catalog_submission/album_cover_preview.dart';
 import 'package:esketit_music_console/ui/catalog_submission/staged_audio_player.dart';
 import 'package:esketit_music_console/ui/catalog_submission/submission_type_badge.dart';
 import 'package:esketit_music_console/use_case/catalog_submission/catalog_submission_repository.dart';
@@ -12,6 +13,102 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher/link.dart';
 
 void main() {
+  for (final outdated in [false, true]) {
+    testWidgets(
+      'album order comparison and review actions, outdated: $outdated',
+      (tester) async {
+        tester.view.physicalSize = const Size(1200, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final repository = _OrderReviewRepository(outdated: outdated);
+        await tester.pumpWidget(
+          MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<CatalogSubmissionRepository>.value(
+                value: repository,
+              ),
+              RepositoryProvider<TracksStorage>.value(
+                value: _FakePhotoStorage(),
+              ),
+            ],
+            child: const MaterialApp(
+              home: Scaffold(body: ReviewQueueScreen(reviewerId: 8)),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('start-review-7')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Blue Sky'), findsOneWidget);
+        final cover = tester.widget<AlbumCoverPreview>(
+          find.byType(AlbumCoverPreview),
+        );
+        expect(cover.url, 'https://example.com/blue-sky.jpg');
+        final before = find.byKey(const ValueKey('track-order-before'));
+        final after = find.byKey(const ValueKey('track-order-after'));
+        expect(
+          tester.getTopRight(before).dx,
+          lessThan(tester.getTopLeft(after).dx),
+        );
+        expect(find.text('Current'), findsNothing);
+        expect(find.text('Proposed'), findsNothing);
+        expect(
+          find
+              .descendant(of: before, matching: find.byType(Text))
+              .evaluate()
+              .map((e) => (e.widget as Text).data),
+          ['Before', '1.', 'I love you (#1)', '4.', 'Brick Heart (#2)'],
+        );
+        expect(
+          find
+              .descendant(of: after, matching: find.byType(Text))
+              .evaluate()
+              .map((e) => (e.widget as Text).data),
+          ['After', '1.', 'Brick Heart (#2)', '10.', 'I love you (#1)'],
+        );
+        expect(
+          find.byKey(const ValueKey('approve-10')),
+          outdated ? findsNothing : findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('outdated-track-order-message')),
+          outdated ? findsOneWidget : findsNothing,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const ValueKey('request-changes-10')),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(const ValueKey('reject-10')))
+              .onPressed,
+          isNotNull,
+        );
+        if (outdated) {
+          await tester.tap(find.byKey(const ValueKey('request-changes-10')));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const ValueKey('review-feedback-message')),
+            'Refresh the album order',
+          );
+          await tester.tap(
+            find.widgetWithText(FilledButton, 'Request changes').last,
+          );
+          await tester.pumpAndSettle();
+          expect(repository.requestChangesCalls, 1);
+          expect(repository.approveCalls, 0);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final width in [1200.0, 400.0]) {
     testWidgets('opens source metadata URL in a new tab at width $width', (
       tester,
@@ -1111,6 +1208,48 @@ class _FakeReviewRepository extends Fake
   Future<void> releaseLease(int requesterId, String leaseToken) async {}
 }
 
+class _OrderReviewRepository extends _FakeReviewRepository {
+  _OrderReviewRepository({required this.outdated});
+  final bool outdated;
+
+  @override
+  CatalogSubmission get submission => CatalogSubmission.fromJson({
+    'id': 10,
+    'entityType': 'album_track_order',
+    'entityId': 42,
+    'requesterUserId': 7,
+    'status': 'pending_review',
+    'snapshot': {},
+    'entity': {
+      'albumId': 42,
+      'albumTitle': 'Blue Sky',
+      'coverImagePath': 'blue-sky.jpg',
+      'targetAvailable': true,
+      'expectedOrderRevision': 2,
+      'currentOrderRevision': 2,
+      'baseTracks': [
+        {'trackId': 2, 'trackNumber': 4},
+        {'trackId': 1, 'trackNumber': 1},
+      ],
+      'tracks': [
+        {'trackId': 1, 'trackNumber': 10},
+        {'trackId': 2, 'trackNumber': 1},
+      ],
+      'currentTracks': [
+        {'trackId': 1, 'trackNumber': 1},
+        {'trackId': 2, 'trackNumber': outdated ? 5 : 4},
+      ],
+      'trackDetails': [
+        {'id': 1, 'name': 'I love you'},
+        {'id': 2, 'name': 'Brick Heart'},
+      ],
+    },
+    'createdAt': '2026-10-21T12:00:00Z',
+    'submittedAt': '2026-10-21T12:00:00Z',
+    'updatedAt': '2026-10-21T12:00:00Z',
+  });
+}
+
 class _DependencyConflictRepository extends _FakeReviewRepository {
   _DependencyConflictRepository()
     : super(includeSecondSubmission: true, includeAuthorSubmission: true);
@@ -1159,6 +1298,8 @@ class _FakeAuthorReviewRepository extends _FakeReviewRepository {
 }
 
 class _FakePhotoStorage extends Fake implements TracksStorage {
+  @override
+  String resolveAlbumCoverUrl(String path) => 'https://example.com/$path';
   @override
   String resolveAuthorPhotoUrl(String photoPath) =>
       'https://example.com/$photoPath';

@@ -1,3 +1,6 @@
+import 'package:esketit_music_console/domain/track_number_assignment.dart';
+import 'package:esketit_music_console/ui/catalog_submission/album_track_order_dialog.dart';
+import 'package:esketit_music_console/use_case/auth/bloc/auth_bloc.dart';
 import 'dart:async';
 
 import 'package:cross_file/cross_file.dart';
@@ -34,6 +37,7 @@ class EditAlbumScreen extends StatefulWidget {
 
 class _EditAlbumScreenState extends State<EditAlbumScreen> {
   final _titleController = TextEditingController();
+  final _trackNumbers = <int, TextEditingController>{};
   final _coverImagePathController = TextEditingController();
   final _releaseDateController = TextEditingController();
   final _releaseDateFocusNode = FocusNode();
@@ -63,6 +67,9 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
   @override
   void dispose() {
     _titleController.dispose();
+    for (final controller in _trackNumbers.values) {
+      controller.dispose();
+    }
     _coverImagePathController.dispose();
     _releaseDateController.dispose();
     _releaseDateFocusNode.dispose();
@@ -249,7 +256,7 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'This screen can reorder the current album tracks. Moving tracks between albums is not supported here yet.',
+                    'Set explicit track numbers. Gaps are preserved; duplicate numbers are rejected. Dragging exchanges occupied number slots.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -278,8 +285,20 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                                     .map((author) => author.currentName)
                                     .join(', '),
                               ),
-                              leading: CircleAvatar(
-                                child: Text('${index + 1}'),
+                              leading: SizedBox(
+                                width: 80,
+                                child: TextField(
+                                  controller: _trackNumbers[track.id],
+                                  enabled: !_isSaving,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: const InputDecoration(
+                                    labelText: 'Track number',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
                               ),
                               trailing: ReorderableDragStartListener(
                                 index: index,
@@ -293,6 +312,19 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
                           ),
                         );
                       },
+                    ),
+                  if (_album != null &&
+                      (context
+                              .read<AuthBloc>()
+                              .state
+                              .session
+                              ?.user
+                              .hasPermission('albums.submit_track_order') ??
+                          false))
+                    OutlinedButton.icon(
+                      onPressed: _isSaving ? null : _proposeNumbers,
+                      icon: const Icon(Icons.rate_review_outlined),
+                      label: const Text('Submit track numbers for review'),
                     ),
                   const SizedBox(height: 24),
                   Text(
@@ -387,6 +419,11 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       setState(() {
         _album = album;
         _tracks = tracks;
+        for (final track in tracks) {
+          _trackNumbers[track.id!] = TextEditingController(
+            text: track.trackNumber?.toString() ?? '',
+          );
+        }
         _titleController.text = album.title;
         _coverImagePathController.text = album.coverImagePath;
         _releaseDate = album.releaseDate;
@@ -616,7 +653,44 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
     });
   }
 
+  List<TrackNumberAssignment> _numberAssignments() {
+    final seen = <int>{};
+    return _tracks.map((track) {
+      final number = int.tryParse(_trackNumbers[track.id]?.text ?? '');
+      if (number == null || number < 1 || !seen.add(number)) {
+        throw const FormatException(
+          'Every track needs a distinct positive number.',
+        );
+      }
+      return TrackNumberAssignment(trackId: track.id!, trackNumber: number);
+    }).toList();
+  }
+
+  Future<void> _proposeNumbers() async {
+    try {
+      final assignments = _numberAssignments();
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlbumTrackOrderDialog(
+          album: _album!,
+          tracks: _tracks,
+          assignments: assignments,
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _errorMessage = error.toString());
+      }
+    }
+  }
+
   Future<void> _saveAlbum() async {
+    try {
+      _numberAssignments();
+    } catch (error) {
+      setState(() => _errorMessage = error.toString());
+      return;
+    }
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(
@@ -651,14 +725,27 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       releaseDate: parsedReleaseDate,
       isPublished: _isPublished,
       trackIds: _tracks.map((track) => track.id).whereType<int>().toList(),
+      orderRevision: _album?.orderRevision ?? 1,
       additionalInfo: List<TextTrackInfo>.from(_additionalInfos),
     );
 
     try {
       final storage = context.read<TracksStorage>();
-      final savedAlbum = widget.isCreating
+      var savedAlbum = widget.isCreating
           ? await storage.createAlbum(draft)
           : await storage.updateAlbum(draft);
+      if (!widget.isCreating &&
+          _tracks.any(
+            (track) =>
+                int.tryParse(_trackNumbers[track.id]?.text ?? '') !=
+                track.trackNumber,
+          )) {
+        savedAlbum = await storage.setAlbumTrackNumbers(
+          savedAlbum.id!,
+          _numberAssignments(),
+          _album!.orderRevision,
+        );
+      }
       if (!mounted) {
         return;
       }
@@ -737,6 +824,17 @@ class _EditAlbumScreenState extends State<EditAlbumScreen> {
       final updatedTracks = List<Track>.from(_tracks);
       final item = updatedTracks.removeAt(oldIndex);
       updatedTracks.insert(newIndex, item);
+      final slots =
+          _tracks
+              .map((track) => int.tryParse(_trackNumbers[track.id]?.text ?? ''))
+              .whereType<int>()
+              .toList()
+            ..sort();
+      if (slots.length == updatedTracks.length) {
+        for (var index = 0; index < updatedTracks.length; index++) {
+          _trackNumbers[updatedTracks[index].id]?.text = '${slots[index]}';
+        }
+      }
       _tracks = updatedTracks;
     });
   }
