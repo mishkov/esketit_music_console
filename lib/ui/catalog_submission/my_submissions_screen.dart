@@ -124,6 +124,7 @@ class _MySubmissionsScreenState extends State<MySubmissionsScreen> {
 
   bool _canUpdate(CatalogSubmission item) =>
       item.status == CatalogSubmissionStatus.changesRequested &&
+      item.entityType != CatalogSubmissionEntityType.trackLyrics &&
       _hasPermission(catalogSubmissionsUpdateOwnPermission);
 
   bool _canCancel(CatalogSubmission item) =>
@@ -261,6 +262,7 @@ class _SubmissionCard extends StatelessWidget {
         leading: Icon(switch (submission.entityType) {
           CatalogSubmissionEntityType.author => Icons.person_outline,
           CatalogSubmissionEntityType.album => Icons.album_outlined,
+          CatalogSubmissionEntityType.trackLyrics => Icons.lyrics_outlined,
           CatalogSubmissionEntityType.track => Icons.music_note_outlined,
           CatalogSubmissionEntityType.albumTrackOrder =>
             Icons.format_list_numbered,
@@ -426,6 +428,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
             CatalogSubmissionEntityType.album => data['title'],
             CatalogSubmissionEntityType.track => data['name'],
             CatalogSubmissionEntityType.albumTrackOrder => 'Track numbers',
+            CatalogSubmissionEntityType.trackLyrics => data['name'],
           }?.toString() ??
           '',
     );
@@ -666,6 +669,10 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
     final repository = context.read<CatalogSubmissionRepository>();
     try {
       switch (widget.submission.entityType) {
+        case CatalogSubmissionEntityType.trackLyrics:
+          throw StateError(
+            'Correct lyrics proposals through the submission API or MCP.',
+          );
         case CatalogSubmissionEntityType.albumTrackOrder:
           throw StateError('Use the track-number proposal editor.');
         case CatalogSubmissionEntityType.author:

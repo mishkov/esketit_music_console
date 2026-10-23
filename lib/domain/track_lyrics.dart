@@ -36,6 +36,45 @@ class TrackLyrics extends Equatable {
   final String? plainText;
   final List<TrackLyricsLine> lines;
 
+  factory TrackLyrics.fromJson(
+    Map<String, dynamic> json, {
+    required int trackId,
+  }) => TrackLyrics(
+    trackId: trackId,
+    type: json['type'] == 'synced'
+        ? TrackLyricsType.synced
+        : TrackLyricsType.plain,
+    languageCode: json['languageCode'] as String? ?? '',
+    source: json['source'] as String? ?? '',
+    isVerified: json['isVerified'] as bool? ?? false,
+    plainText: json['plainText'] as String?,
+    lines: (json['lines'] as List? ?? [])
+        .map((value) {
+          final line = Map<String, dynamic>.from(value as Map);
+          return TrackLyricsLine(
+            startMs: (line['startMs'] as num).toInt(),
+            endMs: (line['endMs'] as num?)?.toInt(),
+            text: line['text'] as String,
+          );
+        })
+        .toList(growable: false),
+  );
+
+  // Match the client player's inclusive start and exclusive end semantics.
+  int? syncedLineIndexAt(Duration position) {
+    if (!isSynced) return null;
+    final milliseconds = position.inMilliseconds;
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      final end =
+          line.endMs ??
+          (index + 1 < lines.length ? lines[index + 1].startMs : null);
+      if (milliseconds >= line.startMs && (end == null || milliseconds < end))
+        return index;
+    }
+    return null;
+  }
+
   bool get isPlain => type == TrackLyricsType.plain;
   bool get isSynced => type == TrackLyricsType.synced;
 

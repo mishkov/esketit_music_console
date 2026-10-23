@@ -13,9 +13,13 @@ class StagedAudioPlayer extends StatefulWidget {
     required this.repository,
     this.leaseToken,
     this.objectUrlFactory,
+    this.onPositionChanged,
+    this.publishedAudioPath,
   });
 
   final int trackId;
+  final ValueChanged<Duration>? onPositionChanged;
+  final String? publishedAudioPath;
   final CatalogSubmissionRepository repository;
   final String? leaseToken;
   final AudioObjectUrlFactory? objectUrlFactory;
@@ -48,6 +52,7 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
     _positionSubscription = _player.positionStream.listen((position) {
       if (!mounted) return;
       setState(() => _position = position);
+      widget.onPositionChanged?.call(position);
     });
     _durationSubscription = _player.durationStream.listen((duration) {
       if (!mounted) return;
@@ -67,6 +72,7 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
   void didUpdateWidget(covariant StagedAudioPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trackId != widget.trackId ||
+        oldWidget.publishedAudioPath != widget.publishedAudioPath ||
         oldWidget.leaseToken != widget.leaseToken) {
       _sourceGeneration += 1;
       _disposeObjectUrl();
@@ -244,10 +250,14 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
           _isLoading = true;
           _error = null;
         });
-        final data = await widget.repository.getStagedAudio(
-          widget.trackId,
-          leaseToken: widget.leaseToken,
-        );
+        final data = widget.publishedAudioPath == null
+            ? await widget.repository.getStagedAudio(
+                widget.trackId,
+                leaseToken: widget.leaseToken,
+              )
+            : await widget.repository.getPublishedAudio(
+                widget.publishedAudioPath!,
+              );
         if (!mounted || sourceGeneration != _sourceGeneration) return;
         final url = _urlFactory.create(
           data.bytes,
@@ -284,6 +294,7 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
   Future<void> _seekTo(double milliseconds) async {
     final position = Duration(milliseconds: milliseconds.round());
     setState(() => _position = position);
+    widget.onPositionChanged?.call(position);
     try {
       await _player.seek(position);
     } catch (error) {
