@@ -76,6 +76,9 @@ class TrackSubmissionRequest {
 }
 
 abstract class CatalogSubmissionRepository {
+  Future<CatalogAudioData> getPublishedAudio(String audioFilePath) =>
+      throw UnimplementedError();
+
   Future<CatalogSubmission> submitAlbumTrackOrder({
     required int albumId,
     required List<TrackNumberAssignment> tracks,

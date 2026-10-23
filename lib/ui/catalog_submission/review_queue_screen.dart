@@ -1,3 +1,5 @@
+import 'package:esketit_music_console/domain/track_lyrics.dart';
+import 'package:esketit_music_console/ui/catalog_submission/review_lyrics_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_track_order_card.dart';
 import 'dart:convert';
 
@@ -333,6 +335,7 @@ class _ActiveReviewState extends State<_ActiveReview> {
           CatalogSubmissionEntityType.album => 1,
           CatalogSubmissionEntityType.track => 2,
           CatalogSubmissionEntityType.albumTrackOrder => 3,
+          CatalogSubmissionEntityType.trackLyrics => 4,
         };
         final statusComparison =
             left.status == CatalogSubmissionStatus.pendingReview
@@ -434,7 +437,9 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 AlbumTrackOrderCard(submission: current),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType == CatalogSubmissionEntityType.track) ...[
+              if (current.entityType == CatalogSubmissionEntityType.track ||
+                  current.entityType ==
+                      CatalogSubmissionEntityType.trackLyrics) ...[
                 TrackInformationCard(
                   submission: current,
                   relatedSubmissions: controller.submissions,
@@ -442,8 +447,23 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
                 _TrackPreviewCard(
+                  key: ValueKey('review-preview-${current.id}'),
                   trackId: current.entityId,
                   leaseToken: controller.leaseToken,
+                  lyrics: current.reviewLyrics,
+                  publishedAudioPath:
+                      current.entityType ==
+                          CatalogSubmissionEntityType.trackLyrics
+                      ? current.retainedEntity['audioFilePath'] as String?
+                      : null,
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (current.isLyricsProposalOutdated) ...[
+                const _MessageCard(
+                  message:
+                      'Published audio or lyrics changed. Request an updated lyrics proposal before approving.',
+                  isError: true,
                 ),
                 const SizedBox(height: 12),
               ],
@@ -798,7 +818,8 @@ class _ReviewDecisionBar extends StatelessWidget {
               icon: const Icon(Icons.edit_note),
               label: const Text('Request changes'),
             ),
-            if (!submission.isAlbumTrackOrderOutdated)
+            if (!submission.isAlbumTrackOrderOutdated &&
+                !submission.isLyricsProposalOutdated)
               FilledButton.icon(
                 key: ValueKey('approve-${submission.id}'),
                 onPressed: controller.isMutating
@@ -849,7 +870,16 @@ class _ReviewDecisionBar extends StatelessWidget {
 }
 
 class _TrackPreviewCard extends StatefulWidget {
-  const _TrackPreviewCard({required this.trackId, required this.leaseToken});
+  const _TrackPreviewCard({
+    super.key,
+    required this.trackId,
+    required this.leaseToken,
+    this.lyrics,
+    this.publishedAudioPath,
+  });
+
+  final TrackLyrics? lyrics;
+  final String? publishedAudioPath;
 
   final int trackId;
   final String? leaseToken;
@@ -860,6 +890,14 @@ class _TrackPreviewCard extends StatefulWidget {
 
 class _TrackPreviewCardState extends State<_TrackPreviewCard>
     with AutomaticKeepAliveClientMixin {
+  final _position = ValueNotifier(Duration.zero);
+
+  @override
+  void dispose() {
+    _position.dispose();
+    super.dispose();
+  }
+
   @override
   bool get wantKeepAlive => true;
 
@@ -868,7 +906,7 @@ class _TrackPreviewCardState extends State<_TrackPreviewCard>
     super.build(context);
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    return Container(
+    final audioCard = Container(
       key: const ValueKey('track-preview-card'),
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -899,9 +937,20 @@ class _TrackPreviewCardState extends State<_TrackPreviewCard>
             trackId: widget.trackId,
             repository: context.read<CatalogSubmissionRepository>(),
             leaseToken: widget.leaseToken,
+            publishedAudioPath: widget.publishedAudioPath,
+            onPositionChanged: (value) => _position.value = value,
           ),
         ],
       ),
+    );
+    return Column(
+      children: [
+        audioCard,
+        if (widget.lyrics != null) ...[
+          const SizedBox(height: 12),
+          ReviewLyricsCard(lyrics: widget.lyrics!, position: _position),
+        ],
+      ],
     );
   }
 }
