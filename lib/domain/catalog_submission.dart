@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/domain/track_lyrics.dart';
 import 'dart:typed_data';
 
 import 'package:equatable/equatable.dart';
@@ -47,7 +48,8 @@ enum CatalogSubmissionEntityType {
   author('author', 'Author'),
   album('album', 'Album'),
   track('track', 'Track'),
-  albumTrackOrder('album_track_order', 'Album track numbers');
+  albumTrackOrder('album_track_order', 'Album track numbers'),
+  trackLyrics('track_lyrics', 'Track lyrics');
 
   const CatalogSubmissionEntityType(this.code, this.label);
 
@@ -111,6 +113,7 @@ class CatalogSubmission extends Equatable {
   const CatalogSubmission({
     required this.id,
     this.revision = 1,
+    this.lyrics,
     required this.entityType,
     required this.entityId,
     required this.requesterUserId,
@@ -128,6 +131,7 @@ class CatalogSubmission extends Equatable {
   final int id;
   final CatalogSubmissionEntityType entityType;
   final int revision;
+  final TrackLyrics? lyrics;
   final int entityId;
   final int requesterUserId;
   final CatalogSubmissionStatus status;
@@ -152,6 +156,8 @@ class CatalogSubmission extends Equatable {
       (entity['title'] ?? snapshot['title'] ?? 'Album #$entityId').toString(),
     CatalogSubmissionEntityType.albumTrackOrder =>
       'Track order for ${AlbumTrackOrderProposal.fromJson(retainedEntity).albumTitle}',
+    CatalogSubmissionEntityType.trackLyrics =>
+      'Lyrics for ${entity["name"] ?? snapshot["name"] ?? "Track #$entityId"}',
     CatalogSubmissionEntityType.track =>
       (entity['name'] ?? snapshot['name'] ?? 'Track #$entityId').toString(),
   };
@@ -164,12 +170,34 @@ class CatalogSubmission extends Equatable {
       canBeCancelled &&
       AlbumTrackOrderProposal.fromJson(retainedEntity).isOutdated;
 
+  TrackLyrics? get reviewLyrics {
+    if (entityType != CatalogSubmissionEntityType.trackLyrics) return lyrics;
+    final value = retainedEntity['lyrics'];
+    return value is Map
+        ? TrackLyrics.fromJson(
+            Map<String, dynamic>.from(value),
+            trackId: entityId,
+          )
+        : null;
+  }
+
+  bool get isLyricsProposalOutdated =>
+      entityType == CatalogSubmissionEntityType.trackLyrics &&
+      canBeCancelled &&
+      retainedEntity['isOutdated'] == true;
+
   CatalogSubmissionFeedback? get latestFeedback =>
       feedback.isEmpty ? null : feedback.last;
 
   factory CatalogSubmission.fromJson(Map<String, dynamic> json) {
     return CatalogSubmission(
       id: _requiredInt(json, 'id'),
+      lyrics: json['lyrics'] is Map
+          ? TrackLyrics.fromJson(
+              _jsonMap(json['lyrics']),
+              trackId: _requiredInt(json, 'entityId'),
+            )
+          : null,
       entityType: CatalogSubmissionEntityType.fromJson(json['entityType']),
       revision: (json['revision'] as num?)?.toInt() ?? 1,
       entityId: _requiredInt(json, 'entityId'),
@@ -193,6 +221,7 @@ class CatalogSubmission extends Equatable {
     id,
     entityType,
     revision,
+    lyrics,
     entityId,
     requesterUserId,
     status,

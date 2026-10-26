@@ -255,6 +255,25 @@ class EsketitRestApiCatalogSubmissionRepository
   );
 
   @override
+  Future<CatalogAudioData> getPublishedAudio(String audioFilePath) async {
+    final uri = Uri.parse(audioFilePath);
+    if (uri.hasScheme ||
+        uri.hasAuthority ||
+        !uri.path.startsWith('/api/songs/') ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      throw const FormatException('Invalid published audio path');
+    }
+    final path = uri.path.substring('/api'.length);
+    final response = await _httpClient.getBinary(path);
+    _expectBinary(response, path: path, statuses: const {200});
+    return CatalogAudioData(
+      bytes: Uint8List.fromList(response.bytes),
+      contentType: response.contentType,
+    );
+  }
+
+  @override
   Future<CatalogAudioData> getStagedAudio(
     int trackId, {
     String? leaseToken,

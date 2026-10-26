@@ -12,6 +12,7 @@ class SubmissionTypeBadge extends StatelessWidget {
     final icon = switch (entityType) {
       CatalogSubmissionEntityType.author => Icons.person_outline,
       CatalogSubmissionEntityType.album => Icons.album_outlined,
+      CatalogSubmissionEntityType.trackLyrics => Icons.lyrics_outlined,
       CatalogSubmissionEntityType.track => Icons.music_note_outlined,
       CatalogSubmissionEntityType.albumTrackOrder => Icons.format_list_numbered,
     };
