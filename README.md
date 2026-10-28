@@ -40,3 +40,14 @@ This screen requires the server's `GET/PATCH /api/mcp/settings` endpoints.
 The dedicated MCP connection credential is configured on the server and is
 never returned to the console. The screen reports whether it is configured.
 Permissions, upload limits, and review lifecycle rules remain server-enforced.
+
+
+## Published track update reviews
+
+Track-update proposals appear in the catalog review queue with before and after
+metadata, source provenance, lyrics, and separate audio players. Use the changed
+fields filter to focus the comparison. Approval is unavailable when published
+data changed after submission; request a refreshed proposal first.
+
+Requires the server track-update API and schema migration 14. Real screenshots
+from the running local console and server are in `docs/screenshots/track-update-*.jpg`.

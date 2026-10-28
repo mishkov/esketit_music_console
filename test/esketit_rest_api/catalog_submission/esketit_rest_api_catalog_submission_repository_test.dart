@@ -117,7 +117,9 @@ void main() {
       'photos': <String>[],
     });
     expect(
-      (client.postBodies['/catalog-submissions/albums'] as Map).containsKey('trackIds'),
+      (client.postBodies['/catalog-submissions/albums'] as Map).containsKey(
+        'trackIds',
+      ),
       isFalse,
     );
     expect(client.multipartField, 'file');
@@ -185,6 +187,11 @@ void main() {
           ),
         },
         binaryResponses: const {
+          '/catalog-submissions/track-updates/10/audio': BinaryHttpResponse(
+            statusCode: 200,
+            bytes: [3, 4],
+            contentType: 'audio/mpeg',
+          ),
           '/catalog-submissions/tracks/42/audio': BinaryHttpResponse(
             statusCode: 200,
             bytes: [1, 2],
@@ -212,6 +219,14 @@ void main() {
         const CatalogReviewDecision(message: 'Invalid', ratingPenalty: 4),
       );
       await repository.getStagedAudio(42, leaseToken: lease.leaseToken);
+      expect(
+        (await repository.getStagedAudio(
+          42,
+          leaseToken: lease.leaseToken,
+          trackUpdateSubmissionId: 10,
+        )).bytes,
+        [3, 4],
+      );
       await repository.releaseLease(7, lease.leaseToken);
 
       for (final headers in client.leaseProtectedHeaders) {

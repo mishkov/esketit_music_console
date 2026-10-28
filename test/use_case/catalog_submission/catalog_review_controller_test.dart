@@ -464,6 +464,7 @@ class _FakeRepository extends Fake implements CatalogSubmissionRepository {
   Future<CatalogAudioData> getStagedAudio(
     int trackId, {
     String? leaseToken,
+    int? trackUpdateSubmissionId,
   }) async => CatalogAudioData(bytes: Uint8List.fromList(const [1]));
 }
 

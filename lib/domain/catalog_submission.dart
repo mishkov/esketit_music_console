@@ -49,7 +49,8 @@ enum CatalogSubmissionEntityType {
   album('album', 'Album'),
   track('track', 'Track'),
   albumTrackOrder('album_track_order', 'Album track numbers'),
-  trackLyrics('track_lyrics', 'Track lyrics');
+  trackLyrics('track_lyrics', 'Track lyrics'),
+  trackUpdate('track_update', 'Track update');
 
   const CatalogSubmissionEntityType(this.code, this.label);
 
@@ -156,6 +157,8 @@ class CatalogSubmission extends Equatable {
       (entity['title'] ?? snapshot['title'] ?? 'Album #$entityId').toString(),
     CatalogSubmissionEntityType.albumTrackOrder =>
       'Track order for ${AlbumTrackOrderProposal.fromJson(retainedEntity).albumTitle}',
+    CatalogSubmissionEntityType.trackUpdate =>
+      'Update to ${((entity['after'] ?? snapshot['after']) as Map?)?['name'] ?? "Track #$entityId"}',
     CatalogSubmissionEntityType.trackLyrics =>
       'Lyrics for ${entity["name"] ?? snapshot["name"] ?? "Track #$entityId"}',
     CatalogSubmissionEntityType.track =>
@@ -183,6 +186,11 @@ class CatalogSubmission extends Equatable {
 
   bool get isLyricsProposalOutdated =>
       entityType == CatalogSubmissionEntityType.trackLyrics &&
+      canBeCancelled &&
+      retainedEntity['isOutdated'] == true;
+
+  bool get isTrackUpdateOutdated =>
+      entityType == CatalogSubmissionEntityType.trackUpdate &&
       canBeCancelled &&
       retainedEntity['isOutdated'] == true;
 

@@ -193,9 +193,10 @@ class CatalogReviewController extends ChangeNotifier {
       return;
     }
     if (action == CatalogReviewAction.approve &&
-        submission.isAlbumTrackOrderOutdated) {
-      errorMessage =
-          'This track order proposal is outdated. Request changes or reject it.';
+        (submission.isAlbumTrackOrderOutdated ||
+            submission.isTrackUpdateOutdated ||
+            submission.isLyricsProposalOutdated)) {
+      errorMessage = 'This proposal is outdated. Request changes or reject it.';
       notifyListeners();
       return;
     }

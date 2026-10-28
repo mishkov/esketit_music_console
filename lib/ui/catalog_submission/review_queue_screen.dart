@@ -2,6 +2,7 @@ import 'package:esketit_music_console/domain/track_lyrics.dart';
 import 'package:esketit_music_console/ui/catalog_submission/review_lyrics_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_track_order_card.dart';
 import 'dart:convert';
+import 'package:esketit_music_console/ui/catalog_submission/track_update_comparison_card.dart';
 
 import 'package:esketit_music_console/domain/catalog_submission.dart';
 import 'package:esketit_music_console/domain/track_info/text_track_info.dart';
@@ -336,6 +337,7 @@ class _ActiveReviewState extends State<_ActiveReview> {
           CatalogSubmissionEntityType.track => 2,
           CatalogSubmissionEntityType.albumTrackOrder => 3,
           CatalogSubmissionEntityType.trackLyrics => 4,
+          CatalogSubmissionEntityType.trackUpdate => 5,
         };
         final statusComparison =
             left.status == CatalogSubmissionStatus.pendingReview
@@ -421,6 +423,14 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
               ),
             if (current != null) ...[
+              if (current.entityType ==
+                  CatalogSubmissionEntityType.trackUpdate) ...[
+                TrackUpdateComparisonCard(
+                  submission: current,
+                  leaseToken: controller.leaseToken,
+                ),
+                const SizedBox(height: 12),
+              ],
               if (current.entityType == CatalogSubmissionEntityType.album) ...[
                 _ReviewSubmissionCard(submission: current),
                 const SizedBox(height: 12),
@@ -467,15 +477,18 @@ class _ActiveReviewState extends State<_ActiveReview> {
                 ),
                 const SizedBox(height: 12),
               ],
-              if (current.entityType != CatalogSubmissionEntityType.author) ...[
+              if (current.entityType != CatalogSubmissionEntityType.author &&
+                  current.entityType !=
+                      CatalogSubmissionEntityType.trackUpdate) ...[
                 _AdditionalInfoCard(
                   additionalInfo: current.retainedEntity['additionalInfo'],
                 ),
                 const SizedBox(height: 12),
               ],
-              ExternalLinksInformationCard(
-                additionalInfo: current.retainedEntity['additionalInfo'],
-              ),
+              if (current.entityType != CatalogSubmissionEntityType.trackUpdate)
+                ExternalLinksInformationCard(
+                  additionalInfo: current.retainedEntity['additionalInfo'],
+                ),
               const SizedBox(height: 12),
               if (current.entityType == CatalogSubmissionEntityType.track) ...[
                 _SourceMetadataCard(
@@ -569,7 +582,9 @@ class _ReviewNavigationHeader extends StatelessWidget {
           ],
         ),
         Text(
-          submission?.isAlbumTrackOrderOutdated == true
+          (submission?.isAlbumTrackOrderOutdated == true ||
+                  submission?.isTrackUpdateOutdated == true ||
+                  submission?.isLyricsProposalOutdated == true)
               ? 'Outdated'
               : submission?.status == CatalogSubmissionStatus.pendingReview
               ? 'In review'
@@ -819,7 +834,8 @@ class _ReviewDecisionBar extends StatelessWidget {
               label: const Text('Request changes'),
             ),
             if (!submission.isAlbumTrackOrderOutdated &&
-                !submission.isLyricsProposalOutdated)
+                !submission.isLyricsProposalOutdated &&
+                !submission.isTrackUpdateOutdated)
               FilledButton.icon(
                 key: ValueKey('approve-${submission.id}'),
                 onPressed: controller.isMutating

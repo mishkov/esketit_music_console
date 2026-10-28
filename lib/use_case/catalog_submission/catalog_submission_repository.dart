@@ -154,5 +154,9 @@ abstract class CatalogSubmissionRepository {
     CatalogReviewDecision decision,
   );
 
-  Future<CatalogAudioData> getStagedAudio(int trackId, {String? leaseToken});
+  Future<CatalogAudioData> getStagedAudio(
+    int trackId, {
+    String? leaseToken,
+    int? trackUpdateSubmissionId,
+  });
 }

@@ -277,8 +277,11 @@ class EsketitRestApiCatalogSubmissionRepository
   Future<CatalogAudioData> getStagedAudio(
     int trackId, {
     String? leaseToken,
+    int? trackUpdateSubmissionId,
   }) async {
-    final path = '/catalog-submissions/tracks/$trackId/audio';
+    final path = trackUpdateSubmissionId == null
+        ? '/catalog-submissions/tracks/$trackId/audio'
+        : '/catalog-submissions/track-updates/$trackUpdateSubmissionId/audio';
     final response = await _httpClient.getBinary(
       path,
       headers: leaseToken == null ? null : _leaseHeaders(leaseToken),

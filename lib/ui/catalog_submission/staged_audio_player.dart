@@ -15,9 +15,11 @@ class StagedAudioPlayer extends StatefulWidget {
     this.objectUrlFactory,
     this.onPositionChanged,
     this.publishedAudioPath,
+    this.trackUpdateSubmissionId,
   });
 
   final int trackId;
+  final int? trackUpdateSubmissionId;
   final ValueChanged<Duration>? onPositionChanged;
   final String? publishedAudioPath;
   final CatalogSubmissionRepository repository;
@@ -73,6 +75,7 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trackId != widget.trackId ||
         oldWidget.publishedAudioPath != widget.publishedAudioPath ||
+        oldWidget.trackUpdateSubmissionId != widget.trackUpdateSubmissionId ||
         oldWidget.leaseToken != widget.leaseToken) {
       _sourceGeneration += 1;
       _disposeObjectUrl();
@@ -254,6 +257,7 @@ class _StagedAudioPlayerState extends State<StagedAudioPlayer> {
             ? await widget.repository.getStagedAudio(
                 widget.trackId,
                 leaseToken: widget.leaseToken,
+                trackUpdateSubmissionId: widget.trackUpdateSubmissionId,
               )
             : await widget.repository.getPublishedAudio(
                 widget.publishedAudioPath!,
