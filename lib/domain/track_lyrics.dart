@@ -69,8 +69,9 @@ class TrackLyrics extends Equatable {
       final end =
           line.endMs ??
           (index + 1 < lines.length ? lines[index + 1].startMs : null);
-      if (milliseconds >= line.startMs && (end == null || milliseconds < end))
+      if (milliseconds >= line.startMs && (end == null || milliseconds < end)) {
         return index;
+      }
     }
     return null;
   }

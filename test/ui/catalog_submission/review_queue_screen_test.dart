@@ -309,7 +309,9 @@ void main() {
     );
   }
 
-  for (final entityType in CatalogSubmissionEntityType.values) {
+  for (final entityType in CatalogSubmissionEntityType.values.where(
+    (type) => type != CatalogSubmissionEntityType.trackUpdate,
+  )) {
     testWidgets('shows separate external links for ${entityType.label}', (
       tester,
     ) async {

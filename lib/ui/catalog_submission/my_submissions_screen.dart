@@ -1,3 +1,4 @@
+import 'package:esketit_music_console/ui/catalog_submission/track_update_comparison_card.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_track_order_dialog.dart';
 import 'package:esketit_music_console/ui/catalog_submission/album_track_order_card.dart';
 import 'dart:convert';
@@ -124,6 +125,7 @@ class _MySubmissionsScreenState extends State<MySubmissionsScreen> {
 
   bool _canUpdate(CatalogSubmission item) =>
       item.status == CatalogSubmissionStatus.changesRequested &&
+      item.entityType != CatalogSubmissionEntityType.trackUpdate &&
       item.entityType != CatalogSubmissionEntityType.trackLyrics &&
       _hasPermission(catalogSubmissionsUpdateOwnPermission);
 
@@ -262,6 +264,7 @@ class _SubmissionCard extends StatelessWidget {
         leading: Icon(switch (submission.entityType) {
           CatalogSubmissionEntityType.author => Icons.person_outline,
           CatalogSubmissionEntityType.album => Icons.album_outlined,
+          CatalogSubmissionEntityType.trackUpdate => Icons.difference_outlined,
           CatalogSubmissionEntityType.trackLyrics => Icons.lyrics_outlined,
           CatalogSubmissionEntityType.track => Icons.music_note_outlined,
           CatalogSubmissionEntityType.albumTrackOrder =>
@@ -319,6 +322,8 @@ class _SubmissionCard extends StatelessWidget {
               CatalogSubmissionEntityType.albumTrackOrder)
             AlbumTrackOrderCard(submission: submission),
           const SizedBox(height: 12),
+          if (submission.entityType == CatalogSubmissionEntityType.trackUpdate)
+            TrackUpdateComparisonCard(submission: submission),
           _JsonDetails(
             title:
                 submission.status == CatalogSubmissionStatus.rejected ||
@@ -428,6 +433,8 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
             CatalogSubmissionEntityType.album => data['title'],
             CatalogSubmissionEntityType.track => data['name'],
             CatalogSubmissionEntityType.albumTrackOrder => 'Track numbers',
+            CatalogSubmissionEntityType.trackUpdate =>
+              (data['after'] as Map?)?['name'],
             CatalogSubmissionEntityType.trackLyrics => data['name'],
           }?.toString() ??
           '',
@@ -669,6 +676,7 @@ class _EditSubmissionDialogState extends State<_EditSubmissionDialog> {
     final repository = context.read<CatalogSubmissionRepository>();
     try {
       switch (widget.submission.entityType) {
+        case CatalogSubmissionEntityType.trackUpdate:
         case CatalogSubmissionEntityType.trackLyrics:
           throw StateError(
             'Correct lyrics proposals through the submission API or MCP.',

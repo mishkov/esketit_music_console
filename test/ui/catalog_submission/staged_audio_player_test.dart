@@ -91,6 +91,7 @@ class _AudioRepository extends Fake implements CatalogSubmissionRepository {
   Future<CatalogAudioData> getStagedAudio(
     int trackId, {
     String? leaseToken,
+    int? trackUpdateSubmissionId,
   }) async {
     requestedTrackId = trackId;
     requestedLease = leaseToken;
